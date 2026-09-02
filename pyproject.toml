@@ -1,0 +1,13 @@
+[project]
+name = "zotero-tools"
+version = "0.1.0"
+description = "Stable command-line entry points for Zotero workflows."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+zotero-paper-tagger = "zotero_tools.tagger:main"
+zotero-mcp-session = "zotero_tools.session:main"
+
+[tool.pytest.ini_options]
+testpaths = ["test"]

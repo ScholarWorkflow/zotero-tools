@@ -1,0 +1,10 @@
+# skillrepo: generated runtime/cache ignores
+__pycache__/
+.DS_Store
+.venv/
+*.py[cod]
+*.skillrepo-backup-*
+*.skillrepo-tmp-*
+*.tmp
+*.log
+apm_modules/
