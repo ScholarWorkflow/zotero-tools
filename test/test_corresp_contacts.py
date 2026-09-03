@@ -34,6 +34,20 @@ def test_pdf_unique_name_email_emits_contact():
     }]
 
 
+def test_pdf_later_unrelated_email_is_not_paired():
+    text = (
+        "A paper title\n"
+        "* Corresponding author: Alex Example\n"
+        "Department of X\n"
+        "For editorial questions: editorial@example.org\n"
+        + "body " * 30
+    )
+    rec = E.parse_pdf_text(text)
+    assert "Alex Example" in rec["names"]
+    assert rec["emails"] == ["editorial@example.org"]
+    assert rec["contacts"] == []
+
+
 def test_pdf_ambiguous_names_and_emails_are_not_positionally_paired():
     text = (
         "A paper title\n"
