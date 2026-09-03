@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 """corresp_extractor: 论文通讯作者显式信息提取（纯函数库 + CLI 自检）。
 
-渠道（v1）:
+渠道（v2）:
   A pdf_footnote  — 本地 PDF 第一页文本层找脚注标注（pdftotext，零网络）
   B springer_curl — Springer/Nature 系落地页 #corresponding-author-list（1 次 HTTP）
   B2 crossref_api — Crossref REST author[].role 含 corresponding-author
 
 统一输出 record（dict）:
-  {"names": [...], "emails": [...], "raw_text": str,
+  {"contacts": [{"name": ..., "email": ..., "confidence": ..., "channel": ...}],
+   "names": [...], "emails": [...], "raw_text": str,
    "channel": "pdf_footnote|springer_curl|crossref_api|none",
    "confidence": "high|low", "fetched_at": ISO8601-UTC}
+
+contacts[] 只收来源结构能直接证明的 name/email 配对。独立 names[] / emails[]
+继续保留以兼容旧 _corresp_cache.json，但绝不按数组位置推断配对。
 
 抓不到返回 None；全渠道试过仍无 → 调用方可自行落 channel="none" 的否定记录。
 本模块不做教授姓名比对——比对是 zotero-paper-tagger 署名簿规则的事。
 浏览器渠道不在这里实现：abstract-fetch 的 evaluate_script 片段见
-abstract-fetch SKILL.md「通讯作者提取」节，返回值由调用方转成同一 record schema。
+abstract-fetch SKILL.md「通讯作者提取」节，返回值由调用方转成同一 record schema；
+只有 DOM 节点本身证明 name/email 关系时才应填 contacts[]。
 
 CLI 自检:
   corresp_extractor.py <pdf路径>
@@ -33,8 +38,6 @@ from datetime import datetime, timezone
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
 TIMEOUT = 20
 
-# 并行限速：所有网络请求发起前过一道全局闸，min_interval 秒内最多发一个请求。
-# 默认关闭（0）；corresp_backfill 并行模式下设为 0.25（≈4 req/s 上限）。
 _net_gate_lock = threading.Lock()
 _net_gate_min = 0.0
 _net_gate_last = 0.0
@@ -66,21 +69,15 @@ def _throttle_wait():
 
 
 def log(msg):
-    """请求级日志 → stderr（stdout 留给数据输出）。"""
     print(msg, flush=True, file=sys.stderr)
 
-# ---------------------------------------------------------------- 名字/邮箱模式
 
 RE_EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]{2,}")
-# 缩写名: A. Example / B. Sample / C. D. Author
 RE_INITIALS_NAME = re.compile(
     r"(?:[A-Z]\.\s*)+[A-Z][A-Za-z'\u2019\-]{1,}(?![a-z])")
-# 全名: Alex Example / Jean-Francois Author（2~4 个词，首词非缩写）
 RE_FULL_NAME = re.compile(
     r"[A-Z][a-z\u00c0-\u017f'\u2019\-]{1,}(?:\s+[A-Z](?:[a-z\u00c0-\u017f]+|\.)?){1,3}")
-# 日文姓名: 汉字 2-6 字（可含平假名）
 RE_CJK_NAME = re.compile(r"[\u4e00-\u9fff]{2,6}(?=[\s，,;；()（）:：]|$)")
-# 停用词：出现在候选名里就丢弃（防把机构/套话当地名）
 NAME_STOP = {"university", "institute", "corresponding", "author", "address",
              "department", "email", "mail", "japan", "science", "technology",
              "abstract", "keywords", "introduction", "copyright", "license",
@@ -95,19 +92,12 @@ NAME_STOP = {"university", "institute", "corresponding", "author", "address",
              "networks", "psychology", "metropolitan", "universitas", "content",
              "source", "oriented", "unit", "units", "summary", "related", "work"}
 
-MARK_EN = re.compile(
-    r"(?:correspond\w*|author to whom)", re.I)
+MARK_EN = re.compile(r"(?:correspond\w*|author to whom)", re.I)
 MARK_JP = re.compile(r"(対応著者|責任著者|連絡先)")
 SYMBOLS = "*†‡✉§¶"
 
 
 def _is_author_note(m, text):
-    """EN 命中是否为作者注脚而非正文用词。
-
-    正文里 "values corresponding to..." 这类普通用词会误命中；作者注脚的特征：
-    ① 标记后 60 字符内出现 author/authors（"Corresponding author."）；
-    ② 标记在行首或行首只有符号（脚注行典型形态）；
-    ③ 紧邻标记前的字符是上标符号（作者标记换行后符号贴着下一行）。"""
     after = text[m.end():m.end() + 60]
     if re.search(r"\bauthors?\b", after, re.I):
         return True
@@ -118,17 +108,14 @@ def _is_author_note(m, text):
     if prefix.rstrip().endswith(tuple(SYMBOLS)):
         return True
     return False
-# 逐词分词形态：(A. Chen) (is) (the) (corresponding) (author)
-# 名字在标记【前】的紧邻括号里；其他形态一律不收标记前的词（防作者行污染）
+
+
 RE_IPSJ_BEFORE = re.compile(
     r"\(\s*((?:[A-Z]\.\s*)*[A-Z][A-Za-z'\-]+(?:\s+[A-Z][A-Za-z'\-]+)?)\s*\)"
     r"(?:\s*\(\s*[A-Za-z]{1,4}\s*\)\s*){1,4}$")
-# 普通语序倒装：… A. Chen is the | *Corresponding author
-# 名字紧邻标记前，中间只隔 is/was/(the)；锚定到 before 串末尾，防误抓远处的词
 RE_BEFORE_PLAIN = re.compile(
     r"((?:[A-Z]\.\s*)*[A-Z][A-Za-z'\-]+(?:\s+[A-Z][A-Za-z'\-]+){0,2})\s*,?\s*"
     r"\b(?:is|was)\b\s*(?:\bthe\b|\ba\b)?\s*$")
-# 致谢/基金关键词：后窗在这里截断，防止把资助语句里的词当人名
 FUNDING_KWS = ("This research", "This work", "This study", "was supported",
                "supported by", "funded by", "Financial support",
                "Acknowledg", "grant-in-aid", "Grand-in-Aid", "Grant-in-Aid")
@@ -138,18 +125,6 @@ def _now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _mk(names, emails, raw, channel):
-    names = _clean_names(names)
-    return {
-        "names": names,
-        "emails": sorted({e.strip(".").lower() for e in emails}),
-        "raw_text": re.sub(r"\s+", " ", raw).strip()[:300],
-        "channel": channel,
-        "confidence": "high" if names else "low",
-        "fetched_at": _now(),
-    }
-
-
 def _clean_names(cands):
     out, seen = [], set()
     for c in cands:
@@ -157,25 +132,21 @@ def _clean_names(cands):
         if not c or len(c) < 4 or re.search(r"\d", c):
             continue
         low = c.lower()
-        # 去掉开头连续的单字母缩写词元，其余词元过停用词
         core = re.findall(r"[a-z]+", low)
         while core and len(core[0]) == 1:
             core.pop(0)
         if any(t in NAME_STOP for t in core):
             continue
-        key = low
-        if key not in seen:
-            seen.add(key)
+        if low not in seen:
+            seen.add(low)
             out.append(c)
     return out
 
 
 def _names_in(text):
-    """一段文本里提取人名候选：优先缩写名，再全名，再日文名。"""
     found = list(RE_INITIALS_NAME.findall(text))
     for m in RE_FULL_NAME.finditer(text):
         s = m.group(0)
-        # 全名里若含缩写词，RE_INITIALS 已抓过整串；这里补纯词全名
         if "." not in s:
             found.append(s)
     for m in RE_CJK_NAME.finditer(text):
@@ -183,10 +154,65 @@ def _names_in(text):
     return found
 
 
+def _normalize_email(email):
+    return (email or "").strip().strip(".").lower()
+
+
+def _contact(name, email, channel, confidence="high"):
+    names = _clean_names([name])
+    email = _normalize_email(email)
+    if not names or not email or not RE_EMAIL.fullmatch(email):
+        return None
+    return {"name": names[0], "email": email,
+            "confidence": confidence, "channel": channel}
+
+
+def _dedupe_contacts(contacts):
+    out, seen = [], set()
+    for c in contacts or []:
+        if not isinstance(c, dict):
+            continue
+        clean = _contact(c.get("name"), c.get("email"), c.get("channel") or "none",
+                         c.get("confidence") or "low")
+        if not clean:
+            continue
+        key = (clean["name"].casefold(), clean["email"], clean["channel"])
+        if key not in seen:
+            seen.add(key)
+            out.append(clean)
+    return out
+
+
+def _single_proven_pair(text, channel, confidence="high"):
+    """只在同一个结构块里恰有 1 个姓名和 1 个邮箱时形成 pair。
+
+    多姓名或多邮箱都视为关系不明，留在 names[]/emails[]，不做位置配对。
+    """
+    names = _clean_names(_names_in(text or ""))
+    emails = sorted({_normalize_email(e) for e in RE_EMAIL.findall(text or "")})
+    if len(names) != 1 or len(emails) != 1:
+        return []
+    c = _contact(names[0], emails[0], channel, confidence)
+    return [c] if c else []
+
+
+def _mk(names, emails, raw, channel, contacts=None):
+    names = _clean_names(names)
+    emails = sorted({_normalize_email(e) for e in emails if _normalize_email(e)})
+    return {
+        "contacts": _dedupe_contacts(contacts),
+        "names": names,
+        "emails": emails,
+        "raw_text": re.sub(r"\s+", " ", raw).strip()[:300],
+        "channel": channel,
+        "confidence": "high" if names else "low",
+        "fetched_at": _now(),
+    }
+
+
 # ---------------------------------------------------------------- 渠道 A: PDF 脚注
 
 def pdf_page_text(pdf_path, pages=1):
-    """读 PDF 前 N 页文本层。pdftotext 优先，fitz 兜底；都失败返回 ''。"""
     try:
         r = subprocess.run(["pdftotext", "-f", "1", "-l", str(pages), str(pdf_path), "-"],
                            capture_output=True, timeout=30)
@@ -196,7 +222,7 @@ def pdf_page_text(pdf_path, pages=1):
     except Exception:
         pass
     try:
-        import fitz  # PyMuPDF，可选依赖
+        import fitz
         doc = fitz.open(str(pdf_path))
         t = "\n".join(doc[i].get_text() for i in range(min(pages, doc.page_count)))
         doc.close()
@@ -206,11 +232,6 @@ def pdf_page_text(pdf_path, pages=1):
 
 
 def parse_pdf_text(text):
-    """第一页文本 → record | None。
-
-    名字只从标记【后】窗口收（*Corresponding author: Name / 邮箱括号缩写名 / 日文名）；
-     标记【前】仅认逐词分词紧邻形态 (A. Example) (is) (the) (corresponding)，
-    其余前置文本一律不碰——作者行里的非通讯名字绝不能混进来。"""
     if not text or len(text.strip()) < 50:
         return None
     emails = RE_EMAIL.findall(text[:4000])
@@ -220,8 +241,7 @@ def parse_pdf_text(text):
             hits.append(m)
     if not hits:
         return None
-    names = []
-    raw_parts = []
+    names, contacts, raw_parts = [], [], []
     for m in hits[:6]:
         after_raw = text[m.end():min(len(text), m.end() + 400)]
         for kw in FUNDING_KWS:
@@ -230,14 +250,24 @@ def parse_pdf_text(text):
                 after_raw = after_raw[:i]
         before = text[max(0, m.start() - 80):m.start()].rstrip().rstrip("(（").rstrip()
         raw_parts.append(before[-40:] + " ⟂ " + after_raw)
-        names.extend(_names_in(after_raw))
+        local_names = _names_in(after_raw)
         ip = RE_IPSJ_BEFORE.search(before)
         bp = RE_BEFORE_PLAIN.search(before)
         if ip:
-            names.append(ip.group(1))
+            local_names.append(ip.group(1))
         elif bp:
-            names.append(bp.group(1))
-    rec = _mk(names, emails, " || ".join(raw_parts), "pdf_footnote")
+            local_names.append(bp.group(1))
+        names.extend(local_names)
+
+        # 只有这个通讯脚注局部块自身能唯一确定 1 name + 1 email 才形成 contact。
+        # 若姓名来自标记前的句法锚点，则把该姓名与 after_raw 的唯一邮箱共同视为同一脚注结构。
+        local_clean = _clean_names(local_names)
+        local_emails = sorted({_normalize_email(e) for e in RE_EMAIL.findall(after_raw)})
+        if len(local_clean) == 1 and len(local_emails) == 1:
+            c = _contact(local_clean[0], local_emails[0], "pdf_footnote")
+            if c:
+                contacts.append(c)
+    rec = _mk(names, emails, " || ".join(raw_parts), "pdf_footnote", contacts)
     return rec if (rec["names"] or rec["emails"]) else None
 
 
@@ -251,9 +281,7 @@ SPRINGER_HOSTS = ("link.springer.com", "www.nature.com", "nature.com",
                   "link.biomedcentral.com", "bmcpublichealth.biomedcentral.com")
 HOST_SUFFIXES = (".springer.com", ".nature.com", ".biomedcentral.com",
                  ".springeropen.com", ".bmcmedicine.com")
-
-RE_CORR_LIST = re.compile(
-    r'<p id="corresponding-author-list"[^>]*>(.*?)</p>', re.S)
+RE_CORR_LIST = re.compile(r'<p id="corresponding-author-list"[^>]*>(.*?)</p>', re.S)
 RE_TAG = re.compile(r"<[^>]+>")
 
 
@@ -285,19 +313,19 @@ def parse_springer_html(html):
     m = RE_CORR_LIST.search(html)
     if not m:
         return None
-    text = re.sub(r"\s+", " ", RE_TAG.sub(" ", m.group(1))).strip()
+    inner = m.group(1)
+    text = re.sub(r"\s+", " ", RE_TAG.sub(" ", inner)).strip()
     if not text:
         return None
     seg = re.sub(r"^Correspondence to\s*", "", text, flags=re.I)
     names = _names_in(seg) or _names_in(text)
     emails = RE_EMAIL.findall(html[max(0, m.start() - 300):m.end() + 500])
-    return _mk(names, emails, text, "springer_curl")
+    # 配对比旧 emails[] 更严格：只看 corresponding-author-list 自身，不借邻接 HTML 猜关系。
+    contacts = _single_proven_pair(RE_TAG.sub(" ", inner), "springer_curl")
+    return _mk(names, emails, text, "springer_curl", contacts)
 
 
 def extract_from_doi(doi, net_sleeper=None):
-    """DOI → 先 Springer/Nature 落地页，再 Crossref role。都无 → None。
-
-    net_sleeper: 可选回调，每次网络请求前调用一次（调用方用来限速）。"""
     def nap():
         if net_sleeper:
             net_sleeper()
@@ -325,8 +353,8 @@ def extract_from_doi(doi, net_sleeper=None):
 
 def fetch_crossref_role(doi):
     url = ("https://api.crossref.org/works/" + urllib.parse.quote(doi, safe=""))
-    log(f"  → GET api.crossref.org（role 字段）")
-    req = urllib.request.Request(url, headers={"User-Agent": f"corresp-extractor/1.0 (mailto:none@example.com)"})
+    log("  → GET api.crossref.org（role 字段）")
+    req = urllib.request.Request(url, headers={"User-Agent": "corresp-extractor/1.0 (mailto:none@example.com)"})
     data = json.load(urllib.request.urlopen(req, timeout=TIMEOUT))["message"]
     names = []
     for a in data.get("author") or []:
@@ -338,10 +366,9 @@ def fetch_crossref_role(doi):
     log(f"  ← 200, corresponding-author role: {len(names)} 个")
     if not names:
         return None
-    return _mk(names, [], "Crossref corresponding-author role", "crossref_api")
+    # Crossref role 在当前字段里只证明“谁是通讯作者”，不提供对应邮箱，因此 contacts=[]。
+    return _mk(names, [], "Crossref corresponding-author role", "crossref_api", [])
 
-
-# ---------------------------------------------------------------- CLI 自检
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
