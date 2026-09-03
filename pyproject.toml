@@ -10,5 +10,8 @@ zotero-paper-tagger = "zotero_tools.tagger:main"
 zotero-mcp-session = "zotero_tools.session:main"
 zotero-item-export = "zotero_tools.item_export:main"
 
+[tool.uv]
+package = true
+
 [tool.pytest.ini_options]
 testpaths = ["test"]
