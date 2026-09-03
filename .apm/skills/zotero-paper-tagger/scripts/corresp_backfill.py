@@ -61,9 +61,10 @@ RE_YEAR = re.compile(r"(?<!\d)(?:18|19|20|21)\d{2}(?!\d)")
 
 
 def item_doi(d):
-    v = (d.get("doi") or "").strip()
-    if RE_DOI_FIELD.match(v):
-        return v
+    for field in ("DOI", "doi"):
+        v = (d.get(field) or "").strip()
+        if RE_DOI_FIELD.match(v):
+            return v
     for u in [d.get("url") or "", d.get("archive") or ""]:
         m = RE_DOI_IN_URL.search(u)
         if m:
@@ -72,8 +73,8 @@ def item_doi(d):
 
 
 def item_year(d):
-    """Best-effort paper year from Zotero metadata; no network inference."""
-    for v in (d.get("year"), d.get("date"), d.get("dateAdded")):
+    """Best-effort publication year from Zotero publication metadata only."""
+    for v in (d.get("year"), d.get("date")):
         m = RE_YEAR.search(str(v or ""))
         if m:
             return int(m.group(0))
