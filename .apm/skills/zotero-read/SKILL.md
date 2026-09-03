@@ -45,15 +45,21 @@ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:23120/mcp   # 期望 4xx
 
 **无需**启动 translation-server(那是 zotero-save 写元数据用的;本 skill 只读不依赖)。
 
+**也无需额外安装 `zotero-tools` Python 包来获得 `zotero-mcp-session` 命令**。建立 MCP session 的 helper 已随本 skill 打包在 `scripts/new-session.sh`。
+
 ## Zotero MCP 调用方式(curl 直连,唯一主路径)
 
 Zotero 插件在 `http://127.0.0.1:23120/mcp` 提供 Streamable HTTP 传输的 MCP 服务器。用 curl 按 JSON-RPC 调用,分两步:
 
 ### 步骤 A:建立会话(拿 Mcp-Session-Id)
 
+宿主加载本 skill 时已经知道本 `SKILL.md` 的实际路径。取其父目录作为 `<skill_dir>`，直接执行随 skill 打包的 helper；不要依赖当前工作目录，也不要假设某个环境变量已经存在:
+
 ```bash
-SID=$(zotero-mcp-session)
+SID=$(bash "<skill_dir>/scripts/new-session.sh")
 ```
+
+这里的 `<skill_dir>` 是当前已加载 `zotero-read` skill 的绝对目录占位符，执行前用实际路径替换。不要要求 PATH 中存在 `zotero-mcp-session`；该全局命令只是 `zotero-tools` Python 包提供的 convenience entry point，本 skill 自身运行不依赖它。
 
 (等价的手写方式:POST initialize → 从响应头 `Mcp-Session-Id` 取值)
 
@@ -68,7 +74,7 @@ curl -s --max-time 60 -X POST http://127.0.0.1:23120/mcp \
 
 响应: `{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"<JSON字符串>"}]}}` —— **注意 text 字段里是嵌套的 JSON 字符串,需要再 parse 一次**。
 
-一次会话可连续复用(多条请求共用一个 SID);会话过期后重新跑 zotero-mcp-session。
+一次会话可连续复用(多条请求共用一个 SID);会话过期后重新运行本 skill 的 `scripts/new-session.sh`。
 
 ## 工具参考(只读工具,参数与返回)
 
@@ -156,7 +162,7 @@ zotero://select/library/items/<key>
 1. **只读**:本 skill 绝不调用 `write_item` / `write_metadata` / `write_tag` / `write_note` / `create_collection` / `delete_collection` 等写工具;要写入请走 zotero-save
 2. 响应的 `text` 字段是**嵌套 JSON 字符串**,要二次 parse
 3. `search_fulltext` 参数名是 **`q`**(写成 `query` 会报 "q (query) is required")
-4. 会话复用同一个 SID;超时/报错后重新 `zotero-mcp-session`
+4. 会话复用同一个 SID;超时/报错后重新运行本 skill 的 `scripts/new-session.sh`
 5. `get_annotations` 必须给 `itemKey` 或 `annotationId`/`annotationIds` 之一
 6. `get_content` 返回的是附件全文,长文可能被截断(用 maxLength 控制);论文图表公式会丢失
 7. 深读长论文时,可把 `get_content` 的全文存到临时文件再分段读,避免上下文爆炸
@@ -166,6 +172,7 @@ zotero://select/library/items/<key>
 
 - **23120 不通**:Zotero 没开 / 插件未启用(Preferences → Zotero MCP Plugin → Enable Server)/ 端口被改
 - **initialize 无响应或超时**:插件内部出问题,重启插件服务
+- **`zotero-mcp-session: command not found`**:不要额外安装包来补这个命令;直接执行当前 skill 自带的 `scripts/new-session.sh`
 - **search_fulltext 报 "q (query) is required"**:参数名用 `q`
 - **get_annotations 报 required**:必须给 itemKey 或 annotationId(s)
 - **get_content 无附件内容**:该条目没有 PDF 附件(linkMode=1 才是已导入的;linked 文件可能未索引)
