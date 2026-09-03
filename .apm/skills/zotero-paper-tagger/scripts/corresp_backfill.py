@@ -10,6 +10,8 @@
   B springer_curl  DOI 解析后是 Springer/Nature 系落地页 → #corresponding-author-list
   B2 crossref_api  Crossref REST role 字段
 全无 → 落 channel="none" 否定记录，重跑跳过；--refresh 重抓。
+每条新记录保留 itemKey / DOI / paper_year / channel，并保留旧 names[] / emails[]
+兼容字段；contacts[] 仅由 extractor 在来源结构证明 name/email 关系时写入。
 网络渠道串行限速约 1 req/s。本脚本只抓取与落盘，姓名比对归 tagger。
 """
 
@@ -28,7 +30,7 @@ import corresp_extractor as E  # noqa: E402
 import tagger as T  # noqa: E402
 
 CACHE_NAME = "_corresp_cache.json"
-RATE = 1.0  # 秒/次网络请求（串行模式）
+RATE = 1.0
 
 
 def out(s=""):
@@ -55,12 +57,14 @@ def save_cache(prog_root, cache):
 
 RE_DOI_IN_URL = re.compile(r"10\.\d{4,9}/[^\s\"<>]+")
 RE_DOI_FIELD = re.compile(r"^10\.\d{4,9}/\S+")
+RE_YEAR = re.compile(r"(?<!\d)(?:18|19|20|21)\d{2}(?!\d)")
 
 
 def item_doi(d):
-    v = (d.get("doi") or "").strip()
-    if RE_DOI_FIELD.match(v):
-        return v
+    for field in ("DOI", "doi"):
+        v = (d.get(field) or "").strip()
+        if RE_DOI_FIELD.match(v):
+            return v
     for u in [d.get("url") or "", d.get("archive") or ""]:
         m = RE_DOI_IN_URL.search(u)
         if m:
@@ -68,8 +72,16 @@ def item_doi(d):
     return None
 
 
+def item_year(d):
+    """Best-effort publication year from Zotero publication metadata only."""
+    for v in (d.get("year"), d.get("date")):
+        m = RE_YEAR.search(str(v or ""))
+        if m:
+            return int(m.group(0))
+    return None
+
+
 def collect_items(mcp, prog_root, only_prof=None):
-    """程序根下全部（去重）条目 + itemKey → 本地 PDF 路径映射。"""
     mapping_path = prog_root / "教授研究" / T.MAPPING_NAME
     if not mapping_path.is_file():
         out(f"[skip] {prog_root.name}: 无 {T.MAPPING_NAME}")
@@ -108,8 +120,7 @@ def collect_items(mcp, prog_root, only_prof=None):
             pid = d.get("parentItem")
             ct = d.get("contentType") or ""
             fn = d.get("filename") or d.get("title") or ""
-            if pid and ik not in pdf_of and (ct == "application/pdf"
-                                             or fn.lower().endswith(".pdf")):
+            if pid and ik not in pdf_of and (ct == "application/pdf" or fn.lower().endswith(".pdf")):
                 pdf_of[pid] = storage_root / ik / fn
         elif d["itemType"] not in T.SKIP_ITEM_TYPES:
             real[ik] = it
@@ -146,20 +157,20 @@ def backfill_root(mcp, prog_root, dry_run=False, refresh=False, limit=None,
         + (f" | 并行 {workers} 线程" if workers > 1 else ""))
 
     def record(ikey, rec, via):
-        """线程安全落一条结果。via: 'A'|'net'|'none'"""
         d = real[ikey]["data"]
         title = (d.get("title") or "").strip() or "（无标题）"
+        provenance = {"itemKey": ikey, "doi": item_doi(d), "paper_year": item_year(d),
+                      "title": title[:120]}
         with lock:
             if rec:
-                cache[ikey] = dict(rec, itemKey=ikey, title=title[:120])
+                cache[ikey] = dict(rec, **provenance)
                 stats[f"hit_{rec['channel']}"] += 1
                 if len(samples) < 12:
                     samples.append((ikey, rec["channel"], rec["confidence"],
                                     ", ".join(rec["names"][:3]) or "(仅邮箱)", title[:60]))
             else:
-                cache[ikey] = {"channel": "none", "names": [], "emails": [],
-                               "raw_text": "", "fetched_at": E._now(),
-                               "itemKey": ikey, "title": title[:120]}
+                cache[ikey] = {"contacts": [], "channel": "none", "names": [], "emails": [],
+                               "raw_text": "", "fetched_at": E._now(), **provenance}
                 if via == "none":
                     stats["no_source"] += 1
                 else:
@@ -199,11 +210,11 @@ def backfill_root(mcp, prog_root, dry_run=False, refresh=False, limit=None,
         record(ikey, rec, "net")
 
     for k in todo_none:
-        record(k, None, "none")  # 无 PDF 且无 DOI，直接否定记录
+        record(k, None, "none")
 
     t0 = time.time()
     if workers > 1:
-        E.set_net_throttle(0.25)  # 全局 ≈4 req/s 上限，跨线程生效
+        E.set_net_throttle(0.25)
         with cf.ThreadPoolExecutor(workers) as ex:
             list(ex.map(work_a, todo_a))
             if todo_net:
