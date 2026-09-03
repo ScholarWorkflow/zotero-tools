@@ -35,7 +35,8 @@ Newly backfilled records also expose structured pairs and paper provenance:
 
 Examples:
 
-- one PDF correspondence footnote containing exactly one detected name and one email: pair allowed;
+- one PDF correspondence-marker line containing exactly one detected name and one email: pair allowed;
+- a PDF marker line containing a name while an email appears only on a later line: `contacts: []`, even though the email may remain in legacy `emails[]`;
 - one Springer `#corresponding-author-list` block containing exactly one detected name and one email: pair allowed;
 - two names plus two emails in one ambiguous block: `contacts: []`, while all names/emails remain in the compatibility arrays;
 - Crossref `corresponding-author` role with a name but no email: `contacts: []`;
