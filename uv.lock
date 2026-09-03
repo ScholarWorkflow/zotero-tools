@@ -5,4 +5,4 @@ requires-python = ">=3.11"
 [[package]]
 name = "zotero-tools"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }

@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    name: Unit tests (Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.15"
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Sync locked environment
+        run: uv sync --locked
+      - name: Run deterministic tests
+        run: uv run --with pytest==8.4.2 pytest -q
+
+  zotero-mcp-integration:
+    name: Headless Zotero MCP integration (Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ZOTERO_VERSION: "10.0.1"
+      ZOTERO_SHA512: "1692b3acea0f0130b187cec9b4979dff8dd999a1f1a8c90e356ef873b024754ae77205b09dfb2eb771745f243616eff377713319eb998d09d9d3d2228398d6b5"
+      MCP_VERSION: "1.6.0"
+      MCP_SHA256: "13a81600a5476578bff3b9014aa0cec63b2fc71480475d127dc1d9d6e4776c5b"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.15"
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Sync locked environment
+        run: uv sync --locked
+      - name: Install headless runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            curl xz-utils xvfb dbus-x11 \
+            libasound2t64 libdbus-glib-1-2 libgtk-3-0 libx11-xcb1 libxt6
+      - name: Cache pinned Zotero and MCP plugin downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/zotero-ci-downloads
+          key: zotero-${{ env.ZOTERO_VERSION }}-mcp-${{ env.MCP_VERSION }}-linux-x64
+      - name: Run real Zotero MCP integration
+        run: bash test/integration/run_headless_zotero_mcp.sh
+      - name: Upload safe integration diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zotero-mcp-integration-diagnostics
+          path: |
+            ${{ runner.temp }}/zotero-mcp-ci/zotero.stdout.log
+            ${{ runner.temp }}/zotero-mcp-ci/zotero.stderr.log
+            ${{ runner.temp }}/zotero-mcp-ci/probe.log
+          if-no-files-found: ignore
+          retention-days: 7
