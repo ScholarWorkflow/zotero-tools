@@ -26,7 +26,7 @@ jobs:
       - name: Sync locked environment
         run: uv sync --locked
       - name: Run deterministic tests
-        run: uvx --from pytest==8.4.2 pytest -q
+        run: uv run --with pytest==8.4.2 pytest -q
 
   zotero-mcp-integration:
     name: Headless Zotero MCP integration (Ubuntu)
