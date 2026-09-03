@@ -34,9 +34,10 @@ def test_tagger_rejects_unknown_arguments():
 def test_zotero_read_uses_bundled_session_helper():
     skill = ROOT / ".apm/skills/zotero-read/SKILL.md"
     text = skill.read_text(encoding="utf-8")
-    assert 'scripts/new-session.sh' in text
+    assert 'SID=$(bash "<skill_dir>/scripts/new-session.sh")' in text
     assert 'SID=$(zotero-mcp-session)' not in text
-    assert '无需' in text and 'uv tool install' in text
+    assert '无需额外安装 `zotero-tools` Python 包' in text
+    assert 'ZOTERO_READ_SKILL_DIR' not in text
 
 
 def test_zotero_read_bundles_session_helper():
