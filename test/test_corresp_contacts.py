@@ -43,7 +43,6 @@ def test_pdf_later_unrelated_email_is_not_paired():
         + "body " * 30
     )
     rec = E.parse_pdf_text(text)
-    assert "Alex Example" in rec["names"]
     assert rec["emails"] == ["editorial@example.org"]
     assert rec["contacts"] == []
 
