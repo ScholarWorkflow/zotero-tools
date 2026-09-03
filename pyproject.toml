@@ -8,6 +8,7 @@ dependencies = []
 [project.scripts]
 zotero-paper-tagger = "zotero_tools.tagger:main"
 zotero-mcp-session = "zotero_tools.session:main"
+zotero-item-export = "zotero_tools.item_export:main"
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
