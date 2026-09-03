@@ -53,14 +53,13 @@ Zotero 插件在 `http://127.0.0.1:23120/mcp` 提供 Streamable HTTP 传输的 M
 
 ### 步骤 A:建立会话(拿 Mcp-Session-Id)
 
-先解析当前已加载的 `zotero-read` skill 目录(即包含本 `SKILL.md` 的目录),然后直接执行其内置 helper:
+宿主加载本 skill 时已经知道本 `SKILL.md` 的实际路径。取其父目录作为 `<skill_dir>`，直接执行随 skill 打包的 helper；不要依赖当前工作目录，也不要假设某个环境变量已经存在:
 
 ```bash
-# ZOTERO_READ_SKILL_DIR = 当前已加载的 zotero-read skill 的绝对目录
-SID=$(bash "$ZOTERO_READ_SKILL_DIR/scripts/new-session.sh")
+SID=$(bash "<skill_dir>/scripts/new-session.sh")
 ```
 
-不要要求 PATH 中存在 `zotero-mcp-session`。该全局命令只是 `zotero-tools` Python 包提供的 convenience entry point,本 skill 自身运行不依赖它。
+这里的 `<skill_dir>` 是当前已加载 `zotero-read` skill 的绝对目录占位符，执行前用实际路径替换。不要要求 PATH 中存在 `zotero-mcp-session`；该全局命令只是 `zotero-tools` Python 包提供的 convenience entry point，本 skill 自身运行不依赖它。
 
 (等价的手写方式:POST initialize → 从响应头 `Mcp-Session-Id` 取值)
 
