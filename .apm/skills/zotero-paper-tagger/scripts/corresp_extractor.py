@@ -196,6 +196,19 @@ def _single_proven_pair(text, channel, confidence="high"):
     return [c] if c else []
 
 
+def _pdf_line_proven_pair(text, marker):
+    """Only pair evidence contained on the correspondence marker's own text line.
+
+    The wider 400-character window remains useful for legacy names[]/emails[] discovery,
+    but proximity across line boundaries is not enough to prove a name/email relation.
+    """
+    line_start = text.rfind("\n", 0, marker.start()) + 1
+    line_end = text.find("\n", marker.end())
+    if line_end < 0:
+        line_end = len(text)
+    return _single_proven_pair(text[line_start:line_end], "pdf_footnote")
+
+
 def _mk(names, emails, raw, channel, contacts=None):
     names = _clean_names(names)
     emails = sorted({_normalize_email(e) for e in emails if _normalize_email(e)})
@@ -259,14 +272,10 @@ def parse_pdf_text(text):
             local_names.append(bp.group(1))
         names.extend(local_names)
 
-        # 只有这个通讯脚注局部块自身能唯一确定 1 name + 1 email 才形成 contact。
-        # 若姓名来自标记前的句法锚点，则把该姓名与 after_raw 的唯一邮箱共同视为同一脚注结构。
-        local_clean = _clean_names(local_names)
-        local_emails = sorted({_normalize_email(e) for e in RE_EMAIL.findall(after_raw)})
-        if len(local_clean) == 1 and len(local_emails) == 1:
-            c = _contact(local_clean[0], local_emails[0], "pdf_footnote")
-            if c:
-                contacts.append(c)
+        # contacts[] is intentionally stricter than the compatibility arrays: only
+        # the marker's own bounded line may prove a pair. Later lines remain legacy
+        # evidence but cannot be paired merely because they are nearby.
+        contacts.extend(_pdf_line_proven_pair(text, m))
     rec = _mk(names, emails, " || ".join(raw_parts), "pdf_footnote", contacts)
     return rec if (rec["names"] or rec["emails"]) else None
 
