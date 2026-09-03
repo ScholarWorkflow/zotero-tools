@@ -70,7 +70,16 @@ def test_springer_neighbor_email_is_not_used_to_infer_pair():
     assert rec["contacts"] == []
 
 
+def test_item_doi_accepts_zotero_uppercase_field():
+    assert B.item_doi({"DOI": "10.1234/example"}) == "10.1234/example"
+    assert B.item_doi({"doi": "10.5678/lower"}) == "10.5678/lower"
+
+
 def test_item_year_prefers_explicit_year_then_date():
     assert B.item_year({"year": "2024", "date": "2021-01-01"}) == 2024
     assert B.item_year({"date": "Published 2019-06"}) == 2019
     assert B.item_year({}) is None
+
+
+def test_item_year_does_not_use_library_ingest_date():
+    assert B.item_year({"dateAdded": "2026-09-03T12:00:00Z"}) is None
