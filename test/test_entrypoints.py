@@ -31,6 +31,22 @@ def test_tagger_rejects_unknown_arguments():
     assert result.returncode != 0
 
 
+def test_zotero_read_uses_bundled_session_helper():
+    skill = ROOT / ".apm/skills/zotero-read/SKILL.md"
+    text = skill.read_text(encoding="utf-8")
+    assert 'scripts/new-session.sh' in text
+    assert 'SID=$(zotero-mcp-session)' not in text
+    assert '无需' in text and 'uv tool install' in text
+
+
+def test_zotero_read_bundles_session_helper():
+    helper = ROOT / ".apm/skills/zotero-read/scripts/new-session.sh"
+    text = helper.read_text(encoding="utf-8")
+    assert helper.is_file()
+    assert 'Mcp-Session-Id' in text
+    assert 'http://127.0.0.1:23120/mcp' in text
+
+
 def test_backfill_uses_configured_storage_root(tmp_path, monkeypatch):
     source = ROOT / ".apm/skills/zotero-paper-tagger/scripts/corresp_backfill.py"
     spec = importlib.util.spec_from_file_location("backfill_under_test", source)
