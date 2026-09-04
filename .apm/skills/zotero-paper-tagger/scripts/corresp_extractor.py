@@ -38,6 +38,11 @@ from datetime import datetime, timezone
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
 TIMEOUT = 20
 
+# Schema version marker for records evaluated under the verified-pair contract.
+# Presence of this field distinguishes modern records from legacy records whose
+# independent names[]/emails[] arrays predate verified pairing semantics.
+SCHEMA_VERSION = "corresp/v1"
+
 _net_gate_lock = threading.Lock()
 _net_gate_min = 0.0
 _net_gate_last = 0.0
@@ -249,6 +254,7 @@ def _mk(names, emails, raw, channel, contacts=None):
     names = _clean_names(names)
     emails = sorted({_normalize_email(e) for e in emails if _normalize_email(e)})
     return {
+        "schema": SCHEMA_VERSION,
         "contacts": _dedupe_contacts(contacts),
         "names": names,
         "emails": emails,
@@ -319,7 +325,29 @@ def parse_pdf_text(text):
 
 
 def extract_from_pdf(pdf_path):
-    return parse_pdf_text(pdf_page_text(pdf_path))
+    """Extract correspondence info from a PDF's first page.
+
+    Returns a record dict if correspondence evidence was found.
+    Returns None if the PDF was successfully parsed but no verified pair found
+    (verified negative).
+    Raises PdfUnavailable if the PDF could not be opened or yielded too
+    little text to analyze (no extractable text layer, scan, etc.) — this is
+    distinct from "checked and found no pair".
+    """
+    text = pdf_page_text(pdf_path)
+    if not text or len(text.strip()) < 50:
+        raise PdfUnavailable(f"PDF yielded no analyzable text: {pdf_path}")
+    return parse_pdf_text(text)
+
+
+class PdfUnavailable(Exception):
+    """Raised when a PDF cannot be analyzed (no text layer, scan, etc.).
+
+    This is distinct from a verified negative: the PDF was never actually
+    checked for correspondence pairs, so the result should NOT carry the
+    schema marker and should remain retryable.
+    """
+    pass
 
 
 # ---------------------------------------------------------------- 渠道 B: Springer/Nature 落地页
@@ -373,27 +401,43 @@ def parse_springer_html(html):
 
 
 def extract_from_doi(doi, net_sleeper=None):
+    """Try all DOI-backed channels for correspondence evidence.
+
+    Returns a record dict if a verified pair is found.
+    Returns None if a channel was successfully checked but no pair found.
+    Raises an exception if every attempted channel failed with an error
+    (so the caller can distinguish "checked, no pair" from "request failed").
+    """
     def nap():
         if net_sleeper:
             net_sleeper()
+    final = None
     try:
         final = resolve_doi(doi)
         nap()
     except Exception:
         final = None
-    if final and (any(h in final for h in SPRINGER_HOSTS)
-                  or any(final.split("/")[2].endswith(s) for s in HOST_SUFFIXES)):
+    is_springer = (final and (any(h in final for h in SPRINGER_HOSTS)
+                              or any(final.split("/")[2].endswith(s) for s in HOST_SUFFIXES)))
+    checked = False  # True if any channel completed successfully
+    if is_springer:
         try:
             rec = parse_springer_html(fetch_html(final))
             nap()
+            checked = True
             if rec:
                 return rec
         except Exception:
             pass
     try:
-        return fetch_crossref_role(doi)
+        return fetch_crossref_role(doi)  # may be None (valid negative) or a record
     except Exception:
-        return None
+        if checked:
+            # Springer completed successfully but found no pair; Crossref failed
+            # afterwards. The valid negative from Springer stands.
+            return None
+        # No channel completed successfully — let the caller know.
+        raise
 
 
 # ---------------------------------------------------------------- 渠道 B2: Crossref role
