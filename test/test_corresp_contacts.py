@@ -96,3 +96,119 @@ def test_item_year_prefers_explicit_year_then_date():
 
 def test_item_year_does_not_use_library_ingest_date():
     assert B.item_year({"dateAdded": "2026-09-03T12:00:00Z"}) is None
+
+
+# --------------------------------------------------------------------------- #
+# Schema marker: new records carry the verified-pair contract version.
+# --------------------------------------------------------------------------- #
+
+def test_new_record_from_pdf_carries_schema_marker():
+    text = (
+        "A paper title\n* Corresponding author: Alex Example (alex@example.edu)\n"
+        + "body " * 30
+    )
+    rec = E.parse_pdf_text(text)
+    assert rec["schema"] == E.SCHEMA_VERSION
+
+
+def test_new_record_from_springer_carries_schema_marker():
+    html = (
+        '<p id="corresponding-author-list">Correspondence to Alex Example '
+        '(alex@example.edu)</p>'
+    )
+    rec = E.parse_springer_html(html)
+    assert rec["schema"] == E.SCHEMA_VERSION
+
+
+# --------------------------------------------------------------------------- #
+# Record classification: legacy vs modern (verified / negative).
+# --------------------------------------------------------------------------- #
+
+def test_classify_modern_verified_record():
+    rec = {"schema": "corresp/v1", "contacts": [{"name": "X", "email": "x@y"}],
+           "channel": "pdf_footnote"}
+    assert B.classify_record(rec) == "modern_verified"
+    assert B.is_modern_record(rec)
+    assert not B.is_legacy_record(rec)
+    assert B.is_cache_hit(rec)
+
+
+def test_classify_modern_negative_record():
+    rec = {"schema": "corresp/v1", "contacts": [], "channel": "none"}
+    assert B.classify_record(rec) == "modern_negative"
+    assert B.is_modern_record(rec)
+    assert not B.is_legacy_record(rec)
+    assert B.is_cache_hit(rec)  # valid skip — was evaluated, just no pair
+
+
+def test_classify_legacy_record_with_nonempty_channel():
+    """A pre-PR7 record with channel but no schema is legacy, not modern."""
+    rec = {"names": ["Alex Example"], "emails": ["alex@example.edu"],
+           "channel": "pdf_footnote", "contacts": []}
+    assert B.classify_record(rec) == "legacy"
+    assert not B.is_modern_record(rec)
+    assert B.is_legacy_record(rec)
+    assert not B.is_cache_hit(rec)  # NOT a valid skip — needs re-evaluation
+
+
+def test_classify_legacy_record_with_empty_arrays():
+    rec = {"names": [], "emails": [], "channel": "none", "contacts": []}
+    assert B.classify_record(rec) == "legacy"
+    assert B.is_legacy_record(rec)
+    assert not B.is_cache_hit(rec)
+
+
+def test_classify_non_dict_is_legacy():
+    assert B.classify_record(None) == "legacy"
+    assert B.classify_record([]) == "legacy"
+
+
+# --------------------------------------------------------------------------- #
+# Selective refresh: legacy-only mode preserves modern records.
+# --------------------------------------------------------------------------- #
+
+def test_refresh_legacy_preserves_modern_verified():
+    """In refresh_legacy mode, modern verified records are NOT re-evaluated."""
+    modern = {"schema": "corresp/v1", "contacts": [{"name": "X", "email": "x@y"}],
+              "channel": "pdf_footnote"}
+    legacy = {"names": ["Old"], "emails": ["old@y"], "channel": "pdf_footnote",
+              "contacts": []}
+    cache = {"K1": modern, "K2": legacy}
+
+    # Simulate is_todo under refresh_legacy=True
+    todo_keys = [k for k in cache
+                 if B.is_legacy_record(cache[k])]
+    assert todo_keys == ["K2"]
+
+
+def test_refresh_legacy_preserves_modern_negative():
+    """Modern negative records (contacts=[] but schema present) are preserved."""
+    modern_neg = {"schema": "corresp/v1", "contacts": [], "channel": "none"}
+    legacy = {"names": ["Old"], "emails": [], "channel": "none", "contacts": []}
+    cache = {"K1": modern_neg, "K2": legacy}
+
+    todo_keys = [k for k in cache if B.is_legacy_record(cache[k])]
+    assert todo_keys == ["K2"]
+
+
+def test_selective_refresh_idempotency():
+    """After refreshing a legacy record, it becomes modern and is skipped next time."""
+    legacy = {"names": ["Old"], "emails": ["old@y"], "channel": "pdf_footnote",
+              "contacts": []}
+    assert B.is_legacy_record(legacy)
+
+    # Simulate refresh: new record replaces legacy
+    refreshed = {"schema": E.SCHEMA_VERSION, "contacts": [],
+                 "channel": "none", "names": [], "emails": []}
+    assert B.is_modern_record(refreshed)
+    assert not B.is_legacy_record(refreshed)
+    assert B.is_cache_hit(refreshed)  # now a valid skip
+
+
+def test_no_code_path_zips_legacy_arrays_into_pair():
+    """Legacy names[] + emails[] must never be zipped into a contact pair."""
+    legacy = {"names": ["Alex", "Betty"], "emails": ["a@x", "b@y"],
+              "channel": "pdf_footnote", "contacts": []}
+    # The record has no contacts — and no code should add them by zipping
+    assert legacy["contacts"] == []
+    assert B.classify_record(legacy) == "legacy"

@@ -60,6 +60,62 @@ RE_DOI_FIELD = re.compile(r"^10\.\d{4,9}/\S+")
 RE_YEAR = re.compile(r"(?<!\d)(?:18|19|20|21)\d{2}(?!\d)")
 
 
+# --------------------------------------------------------------------------- #
+# Record classification: distinguishes three kinds of cache records.
+#
+#   modern_verified  — carries schema marker AND has at least one contact pair.
+#   modern_negative  — carries schema marker, contacts=[], but was evaluated
+#                      under the verified-pair contract (valid skip).
+#   legacy           — no schema marker; independent names[]/emails[] predate
+#                      verified pairing and may need re-evaluation.
+#
+# The critical invariant: legacy records with a non-empty channel are NOT
+# silently treated as equivalent to modern records. Downstream reconciliation
+# can then tell "verified no pair" from "never evaluated under the contract".
+# --------------------------------------------------------------------------- #
+
+def is_modern_record(rec):
+    """True when the record was produced under the verified-pair contract.
+
+    A modern record carries the schema marker.  It may be a verified hit
+    (contacts non-empty) or a modern negative (contacts empty but checked).
+    """
+    return isinstance(rec, dict) and rec.get("schema") == E.SCHEMA_VERSION
+
+
+def is_legacy_record(rec):
+    """True when the record predates the verified-pair contract.
+
+    Legacy records have independent names[]/emails[] arrays without a schema
+    marker.  They may look positive (non-empty channel) but cannot be trusted
+    as verified pairs.
+    """
+    if not isinstance(rec, dict):
+        return False
+    return "schema" not in rec
+
+
+def classify_record(rec):
+    """Return one of 'modern_verified', 'modern_negative', 'legacy'."""
+    if not isinstance(rec, dict):
+        return "legacy"
+    if is_modern_record(rec):
+        if rec.get("contacts"):
+            return "modern_verified"
+        return "modern_negative"
+    return "legacy"
+
+
+def is_cache_hit(rec):
+    """True when the record is safe to skip during backfill.
+
+    Only modern records (verified OR negative) are valid skip targets.
+    Legacy records are never silently skipped — they may carry stale
+    independent arrays that were never evaluated for verified pairing.
+    """
+    return is_modern_record(rec)
+
+
 def item_doi(d):
     for field in ("DOI", "doi"):
         v = (d.get(field) or "").strip()
@@ -128,7 +184,7 @@ def collect_items(mcp, prog_root, only_prof=None):
 
 
 def backfill_root(mcp, prog_root, dry_run=False, refresh=False, limit=None,
-                  only_prof=None, workers=6):
+                  only_prof=None, workers=6, refresh_legacy=False):
     got = collect_items(mcp, prog_root, only_prof)
     if not got:
         return None
@@ -143,7 +199,16 @@ def backfill_root(mcp, prog_root, dry_run=False, refresh=False, limit=None,
 
     def is_todo(k):
         old = cache.get(k)
-        return not (old and old.get("channel") and not refresh)
+        if refresh:
+            return True
+        # In refresh_legacy mode, only legacy records are re-evaluated.
+        # Modern records (verified or negative) are preserved.
+        if refresh_legacy:
+            return is_legacy_record(old)
+        # Default: legacy records always re-evaluate — they may carry stale
+        # independent arrays that were never checked under the verified-pair
+        # contract. Modern records are valid skip targets.
+        return not is_cache_hit(old)
 
     todo = [k for k in sorted(real) if is_todo(k)]
     stats["cached"] = len(real) - len(todo)
@@ -169,7 +234,10 @@ def backfill_root(mcp, prog_root, dry_run=False, refresh=False, limit=None,
                     samples.append((ikey, rec["channel"], rec["confidence"],
                                     ", ".join(rec["names"][:3]) or "(仅邮箱)", title[:60]))
             else:
-                cache[ikey] = {"contacts": [], "channel": "none", "names": [], "emails": [],
+                # Modern negative record: carries schema so future runs skip it
+                # (no repeated re-fetch). contacts=[] is a valid verified result.
+                cache[ikey] = {"schema": E.SCHEMA_VERSION, "contacts": [],
+                               "channel": "none", "names": [], "emails": [],
                                "raw_text": "", "fetched_at": E._now(), **provenance}
                 if via == "none":
                     stats["no_source"] += 1
@@ -254,7 +322,10 @@ def main():
     ap.add_argument("--boshu-root", default="boshu_output")
     ap.add_argument("--professor", default=None)
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--refresh", action="store_true")
+    ap.add_argument("--refresh", action="store_true",
+                    help="刷新全部缓存记录（含已验证的现代记录）")
+    ap.add_argument("--refresh-legacy", action="store_true",
+                    help="仅刷新无 schema 标记的旧记录，保留现代已验证/否定记录")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--workers", type=int, default=6)
     args = ap.parse_args(argv)
@@ -290,7 +361,8 @@ def main():
     for root in roots:
         out(f"== {root.name} ==")
         r = backfill_root(mcp, root, args.dry_run, args.refresh,
-                          args.limit, args.professor, args.workers)
+                          args.limit, args.professor, args.workers,
+                          args.refresh_legacy)
         if r:
             for k in grand:
                 grand[k] += r["stats"].get(k, 0)

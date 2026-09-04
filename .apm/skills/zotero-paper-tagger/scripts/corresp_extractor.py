@@ -38,6 +38,11 @@ from datetime import datetime, timezone
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
 TIMEOUT = 20
 
+# Schema version marker for records evaluated under the verified-pair contract.
+# Presence of this field distinguishes modern records from legacy records whose
+# independent names[]/emails[] arrays predate verified pairing semantics.
+SCHEMA_VERSION = "corresp/v1"
+
 _net_gate_lock = threading.Lock()
 _net_gate_min = 0.0
 _net_gate_last = 0.0
@@ -213,6 +218,7 @@ def _mk(names, emails, raw, channel, contacts=None):
     names = _clean_names(names)
     emails = sorted({_normalize_email(e) for e in emails if _normalize_email(e)})
     return {
+        "schema": SCHEMA_VERSION,
         "contacts": _dedupe_contacts(contacts),
         "names": names,
         "emails": emails,
