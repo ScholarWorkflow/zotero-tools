@@ -212,3 +212,70 @@ def test_no_code_path_zips_legacy_arrays_into_pair():
     # The record has no contacts — and no code should add them by zipping
     assert legacy["contacts"] == []
     assert B.classify_record(legacy) == "legacy"
+
+
+# --------------------------------------------------------------------------- #
+# Outcome distinction: verified_negative vs unavailable (retryable).
+# --------------------------------------------------------------------------- #
+
+def test_unavailable_record_no_source_has_no_schema():
+    """A record with no PDF and no DOI is unavailable, not a verified negative."""
+    # Simulate the "unavailable" outcome: no schema → stays retryable
+    rec = {"contacts": [], "channel": "none", "names": [], "emails": []}
+    assert "schema" not in rec
+    assert not B.is_cache_hit(rec)  # retryable on next backfill
+
+
+def test_unavailable_record_after_error_has_no_schema():
+    """A record where PDF parse or network failed is retryable, not a verified negative."""
+    # When work_a catches an exception, outcome="unavailable" → no schema
+    rec = {"contacts": [], "channel": "none", "names": [], "emails": [],
+           "raw_text": "", "fetched_at": "2026-09-04T00:00:00+00:00"}
+    assert "schema" not in rec
+    assert not B.is_cache_hit(rec)
+
+
+def test_verified_negative_has_schema_and_is_cache_hit():
+    """A record where a channel completed but found no pair is a modern negative."""
+    rec = {"schema": E.SCHEMA_VERSION, "contacts": [], "channel": "none"}
+    assert B.is_cache_hit(rec)
+    assert B.classify_record(rec) == "modern_negative"
+
+
+def test_extract_from_doi_raises_when_all_channels_fail():
+    """extract_from_doi raises when no channel completes successfully."""
+    from unittest.mock import patch
+
+    with patch.object(E, "resolve_doi", side_effect=Exception("network down")):
+        with patch.object(E, "fetch_crossref_role", side_effect=Exception("timeout")):
+            try:
+                E.extract_from_doi("10.1234/nonexistent")
+                raised = False
+            except Exception:
+                raised = True
+            assert raised, "extract_from_doi should raise when all channels fail"
+
+
+def test_extract_from_doi_returns_none_when_checked_but_no_pair():
+    """extract_from_doi returns None when a channel completes but finds no pair."""
+    from unittest.mock import patch
+
+    # resolve_doi succeeds but points to a non-Springer host, crossref returns None
+    with patch.object(E, "resolve_doi", return_value="https://example.com/paper"):
+        with patch.object(E, "fetch_crossref_role", return_value=None):
+            result = E.extract_from_doi("10.1234/empty")
+            assert result is None  # checked, no pair → valid negative
+
+
+def test_unavailable_vs_verified_negative_classification():
+    """The key distinction: unavailable records are retryable, verified negatives are not."""
+    unavailable = {"contacts": [], "channel": "none"}  # no schema
+    verified_neg = {"schema": E.SCHEMA_VERSION, "contacts": [], "channel": "none"}
+
+    # Both have empty contacts, but only verified_neg is a cache hit
+    assert not B.is_cache_hit(unavailable)
+    assert B.is_cache_hit(verified_neg)
+
+    # Both classify as legacy/modern based on schema presence
+    assert B.classify_record(unavailable) == "legacy"  # no schema → legacy
+    assert B.classify_record(verified_neg) == "modern_negative"

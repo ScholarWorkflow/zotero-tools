@@ -7,6 +7,7 @@ Newly backfilled records also expose structured pairs and paper provenance:
 ```json
 {
   "ITEMKEY": {
+    "schema": "corresp/v1",
     "contacts": [
       {
         "name": "Alex Example",
@@ -28,6 +29,20 @@ Newly backfilled records also expose structured pairs and paper provenance:
   }
 }
 ```
+
+## Schema marker and record classification
+
+New records carry a `schema` field (`"corresp/v1"`) that marks them as evaluated under the verified-pair contract. This field distinguishes three record kinds:
+
+| Kind | `schema` | `contacts` | Meaning |
+|------|----------|------------|---------|
+| modern_verified | present | non-empty | A verified name/email pair was found. |
+| modern_negative | present | empty | A channel completed successfully but found no verified pair. Safe to skip on later backfills. |
+| legacy | absent | empty | Record predates the verified-pair contract; independent `names[]`/`emails[]` may need re-evaluation. |
+
+Records produced under `channel: "none"` **do not** carry `schema` when the absence of a pair was not the result of a successful check — for example when no source was available (no PDF, no DOI) or when a channel failed (PDF parse error, network error). These stay retryable so a later backfill can re-attempt once the source or network is restored.
+
+Downstream reconciliation can therefore tell "verified no pair" (`schema` present, `contacts: []`) from "old cache never evaluated under the contract" (`schema` absent).
 
 ## Pairing invariant
 

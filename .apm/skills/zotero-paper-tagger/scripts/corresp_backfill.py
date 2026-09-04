@@ -221,7 +221,16 @@ def backfill_root(mcp, prog_root, dry_run=False, refresh=False, limit=None,
         f"（A渠道 {len(todo_a)} + 网络 {len(todo_net)} + 无源 {len(todo_none)}）"
         + (f" | 并行 {workers} 线程" if workers > 1 else ""))
 
-    def record(ikey, rec, via):
+    def record(ikey, rec, via, outcome="verified_negative"):
+        """Write a cache record for ikey.
+
+        outcome distinguishes three cases:
+          - "verified_negative": a channel was checked under the verified-pair
+            contract and found no pair. Carries schema → becomes a cache hit.
+          - "unavailable": no source available (no PDF, no DOI) or a channel
+            failed (PDF parse error, network error). No schema → stays retryable.
+          - "hit": rec is a non-None record with at least one name/email.
+        """
         d = real[ikey]["data"]
         title = (d.get("title") or "").strip() or "（无标题）"
         provenance = {"itemKey": ikey, "doi": item_doi(d), "paper_year": item_year(d),
@@ -233,12 +242,19 @@ def backfill_root(mcp, prog_root, dry_run=False, refresh=False, limit=None,
                 if len(samples) < 12:
                     samples.append((ikey, rec["channel"], rec["confidence"],
                                     ", ".join(rec["names"][:3]) or "(仅邮箱)", title[:60]))
-            else:
-                # Modern negative record: carries schema so future runs skip it
-                # (no repeated re-fetch). contacts=[] is a valid verified result.
+            elif outcome == "verified_negative":
+                # Modern negative: a channel completed successfully but found no
+                # verified pair. Carries schema so future runs skip it.
                 cache[ikey] = {"schema": E.SCHEMA_VERSION, "contacts": [],
                                "channel": "none", "names": [], "emails": [],
                                "raw_text": "", "fetched_at": E._now(), **provenance}
+                stats["none"] += 1
+            else:
+                # "unavailable": no source or channel failed. No schema marker →
+                # stays retryable on the next backfill (not a verified negative).
+                cache[ikey] = {"contacts": [], "channel": "none", "names": [],
+                               "emails": [], "raw_text": "",
+                               "fetched_at": E._now(), **provenance}
                 if via == "none":
                     stats["no_source"] += 1
                 else:
@@ -254,31 +270,36 @@ def backfill_root(mcp, prog_root, dry_run=False, refresh=False, limit=None,
     def work_a(ikey):
         title = (real[ikey]["data"].get("title") or "")[:44]
         pdf = pdf_of.get(ikey)
+        rec, outcome = None, "unavailable"
         try:
             rec = E.extract_from_pdf(pdf)
+            outcome = "verified_negative"  # PDF parsed, just no pair found
         except Exception as e:
             with lock:
                 stats["errors"].append(f"{ikey} PDF 解析失败: {type(e).__name__}")
-            rec = None
+            outcome = "unavailable"  # channel failed, stay retryable
         if rec:
             out(f"  [A] {ikey} 《{title}》→ {', '.join(rec['names'][:2]) or '(仅邮箱)'}")
-        record(ikey, rec, "A")
+        record(ikey, rec, "A", outcome)
 
     def work_net(ikey):
         title = (real[ikey]["data"].get("title") or "")[:44]
         doi = item_doi(real[ikey]["data"])
-        rec = None
+        rec, outcome = None, "unavailable"
         try:
             rec = E.extract_from_doi(doi)
+            outcome = "verified_negative"  # all channels completed, no pair
         except Exception as e:
             with lock:
                 stats["errors"].append(f"{ikey} DOI 网络失败: {type(e).__name__}")
+            outcome = "unavailable"  # network failed, stay retryable
         if rec:
             out(f"  [net] {ikey} 《{title}》→ [{rec['channel']}] {', '.join(rec['names'][:2])}")
-        record(ikey, rec, "net")
+        record(ikey, rec, "net", outcome)
 
     for k in todo_none:
-        record(k, None, "none")
+        # No PDF and no DOI: pair check was never performed, not a verified negative.
+        record(k, None, "none", outcome="unavailable")
 
     t0 = time.time()
     if workers > 1:

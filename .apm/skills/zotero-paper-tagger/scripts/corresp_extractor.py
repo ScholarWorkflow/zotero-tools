@@ -341,27 +341,43 @@ def parse_springer_html(html):
 
 
 def extract_from_doi(doi, net_sleeper=None):
+    """Try all DOI-backed channels for correspondence evidence.
+
+    Returns a record dict if a verified pair is found.
+    Returns None if a channel was successfully checked but no pair found.
+    Raises an exception if every attempted channel failed with an error
+    (so the caller can distinguish "checked, no pair" from "request failed").
+    """
     def nap():
         if net_sleeper:
             net_sleeper()
+    final = None
     try:
         final = resolve_doi(doi)
         nap()
     except Exception:
         final = None
-    if final and (any(h in final for h in SPRINGER_HOSTS)
-                  or any(final.split("/")[2].endswith(s) for s in HOST_SUFFIXES)):
+    is_springer = (final and (any(h in final for h in SPRINGER_HOSTS)
+                              or any(final.split("/")[2].endswith(s) for s in HOST_SUFFIXES)))
+    checked = False  # True if any channel completed successfully
+    if is_springer:
         try:
             rec = parse_springer_html(fetch_html(final))
             nap()
+            checked = True
             if rec:
                 return rec
         except Exception:
             pass
     try:
-        return fetch_crossref_role(doi)
+        return fetch_crossref_role(doi)  # may be None (valid negative) or a record
     except Exception:
-        return None
+        if checked:
+            # Springer completed successfully but found no pair; Crossref failed
+            # afterwards. The valid negative from Springer stands.
+            return None
+        # No channel completed successfully — let the caller know.
+        raise
 
 
 # ---------------------------------------------------------------- 渠道 B2: Crossref role
