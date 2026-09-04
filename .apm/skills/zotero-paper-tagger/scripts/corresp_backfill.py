@@ -77,18 +77,27 @@ RE_YEAR = re.compile(r"(?<!\d)(?:18|19|20|21)\d{2}(?!\d)")
 def is_modern_record(rec):
     """True when the record was produced under the verified-pair contract.
 
-    A modern record carries the schema marker.  It may be a verified hit
+    A modern record carries the SCHEMA_VERSION marker.  It may be a verified hit
     (contacts non-empty) or a modern negative (contacts empty but checked).
     """
     return isinstance(rec, dict) and rec.get("schema") == E.SCHEMA_VERSION
 
 
+def is_unavailable_record(rec):
+    """True when a channel was attempted but failed (no source, parse error, etc.).
+
+    These records carry SCHEMA_UNAVAILABLE and are retryable on the next backfill.
+    They are distinct from legacy records (no schema at all).
+    """
+    return isinstance(rec, dict) and rec.get("schema") == E.SCHEMA_UNAVAILABLE
+
+
 def is_legacy_record(rec):
     """True when the record predates the verified-pair contract.
 
-    Legacy records have independent names[]/emails[] arrays without a schema
-    marker.  They may look positive (non-empty channel) but cannot be trusted
-    as verified pairs.
+    Legacy records have independent names[]/emails[] arrays without ANY schema
+    marker (neither SCHEMA_VERSION nor SCHEMA_UNAVAILABLE).  They may look
+    positive (non-empty channel) but cannot be trusted as verified pairs.
     """
     if not isinstance(rec, dict):
         return False
@@ -96,22 +105,25 @@ def is_legacy_record(rec):
 
 
 def classify_record(rec):
-    """Return one of 'modern_verified', 'modern_negative', 'legacy'."""
+    """Return one of 'modern_verified', 'modern_negative', 'unavailable', 'legacy'."""
     if not isinstance(rec, dict):
         return "legacy"
-    if is_modern_record(rec):
+    schema = rec.get("schema")
+    if schema == E.SCHEMA_VERSION:
         if rec.get("contacts"):
             return "modern_verified"
         return "modern_negative"
+    if schema == E.SCHEMA_UNAVAILABLE:
+        return "unavailable"
     return "legacy"
 
 
 def is_cache_hit(rec):
     """True when the record is safe to skip during backfill.
 
-    Only modern records (verified OR negative) are valid skip targets.
-    Legacy records are never silently skipped — they may carry stale
-    independent arrays that were never evaluated for verified pairing.
+    Modern records (verified OR negative) are valid skip targets.
+    Unavailable records are retryable (not cache hits).
+    Legacy records require explicit scoping (not auto-skipped, not auto-migrated).
     """
     return is_modern_record(rec)
 
@@ -184,7 +196,19 @@ def collect_items(mcp, prog_root, only_prof=None):
 
 
 def backfill_root(mcp, prog_root, dry_run=False, refresh=False, limit=None,
-                  only_prof=None, workers=6, refresh_legacy=False):
+                  only_prof=None, workers=6, refresh_legacy=False,
+                  item_keys=None):
+    """Backfill correspondence cache for a program root.
+
+    Three modes control which records are re-evaluated:
+      - default: only unavailable/failed records (no schema, retryable) are
+        re-evaluated. Legacy records are reported as 'legacy_needs_refresh'
+        but NOT automatically migrated — that requires explicit scoping.
+      - refresh_legacy=True: all legacy records are re-evaluated.
+      - item_keys=[...]: only the specified item keys are re-evaluated
+        (regardless of their record class).
+      - refresh=True: everything is re-evaluated.
+    """
     got = collect_items(mcp, prog_root, only_prof)
     if not got:
         return None
@@ -192,26 +216,43 @@ def backfill_root(mcp, prog_root, dry_run=False, refresh=False, limit=None,
     cache = {} if refresh else load_cache(prog_root)
 
     stats = {"hit_pdf_footnote": 0, "hit_springer_curl": 0, "hit_crossref_api": 0,
-             "none": 0, "cached": 0, "no_source": 0, "errors": []}
+             "none": 0, "cached": 0, "no_source": 0, "errors": [],
+             "legacy_needs_refresh": 0}
     samples = []
     lock = threading.Lock()
     counters = {"processed": 0, "net": 0}
+
+    # item_keys target list (if provided): only these keys are refreshed.
+    target_set = set(item_keys) if item_keys else None
 
     def is_todo(k):
         old = cache.get(k)
         if refresh:
             return True
+        # Explicit item-key targeting: refresh only the requested keys.
+        if target_set is not None:
+            return k in target_set
         # In refresh_legacy mode, only legacy records are re-evaluated.
         # Modern records (verified or negative) are preserved.
         if refresh_legacy:
             return is_legacy_record(old)
-        # Default: legacy records always re-evaluate — they may carry stale
-        # independent arrays that were never checked under the verified-pair
-        # contract. Modern records are valid skip targets.
-        return not is_cache_hit(old)
+        # DEFAULT: retry unavailable records (failed attempts), but skip
+        # legacy records (require explicit scoping) and modern records
+        # (valid cache hits).
+        if is_modern_record(old):
+            return False
+        if is_legacy_record(old):
+            return False
+        # unavailable (or any non-modern, non-legacy) → retry
+        return True
 
     todo = [k for k in sorted(real) if is_todo(k)]
     stats["cached"] = len(real) - len(todo)
+
+    # Count legacy records that need refresh but are NOT being auto-migrated.
+    if not refresh and target_set is None and not refresh_legacy:
+        stats["legacy_needs_refresh"] = sum(
+            1 for k in real if is_legacy_record(cache.get(k)) and k not in set(todo))
     if limit:
         todo = todo[:limit]
     todo_a = [k for k in todo if (pdf_of.get(k) or Path("-")).is_file()]
@@ -250,11 +291,12 @@ def backfill_root(mcp, prog_root, dry_run=False, refresh=False, limit=None,
                                "raw_text": "", "fetched_at": E._now(), **provenance}
                 stats["none"] += 1
             else:
-                # "unavailable": no source or channel failed. No schema marker →
-                # stays retryable on the next backfill (not a verified negative).
-                cache[ikey] = {"contacts": [], "channel": "none", "names": [],
-                               "emails": [], "raw_text": "",
-                               "fetched_at": E._now(), **provenance}
+                # "unavailable": no source or channel failed. Carries SCHEMA_UNAVAILABLE
+                # so it's distinguishable from legacy (no schema) and can be retried
+                # on the next backfill without becoming a permanent cache hit.
+                cache[ikey] = {"schema": E.SCHEMA_UNAVAILABLE, "contacts": [],
+                               "channel": "none", "names": [], "emails": [],
+                               "raw_text": "", "fetched_at": E._now(), **provenance}
                 if via == "none":
                     stats["no_source"] += 1
                 else:
@@ -333,6 +375,9 @@ def backfill_root(mcp, prog_root, dry_run=False, refresh=False, limit=None,
         f" B2 {stats['hit_crossref_api']} | 无显式 {stats['none']}"
         f" + 无PDF无DOI {stats['no_source']} | 错误 {len(stats['errors'])}"
         f" | 耗时 {(time.time()-t0)/60:.1f}m")
+    if stats["legacy_needs_refresh"] > 0:
+        out(f"  ⚠ 发现 {stats['legacy_needs_refresh']} 条 legacy 记录未迁移"
+            f"（使用 --item-key KEY 或 --refresh-legacy 显式刷新）")
     out(f"  显式覆盖率（本次新处理）: {hits}/{len(todo)}"
         + ("  [dry-run 未写盘]" if dry_run else ""))
     for s in samples:
@@ -353,7 +398,10 @@ def main():
     ap.add_argument("--refresh", action="store_true",
                     help="刷新全部缓存记录（含已验证的现代记录）")
     ap.add_argument("--refresh-legacy", action="store_true",
-                    help="仅刷新无 schema 标记的旧记录，保留现代已验证/否定记录")
+                    help="显式刷新全部 legacy 记录（默认不自动迁移 legacy）")
+    ap.add_argument("--item-key", action="append", default=None,
+                    metavar="KEY",
+                    help="显式指定要刷新的 item key（可重复，仅刷新这些条目）")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--workers", type=int, default=6)
     args = ap.parse_args(argv)
@@ -385,18 +433,21 @@ def main():
         out(f"全库模式: {len(roots)} 个程序根")
 
     grand = {"hit_pdf_footnote": 0, "hit_springer_curl": 0, "hit_crossref_api": 0,
-             "none": 0, "cached": 0}
+             "none": 0, "cached": 0, "legacy_needs_refresh": 0}
     for root in roots:
         out(f"== {root.name} ==")
         r = backfill_root(mcp, root, args.dry_run, args.refresh,
                           args.limit, args.professor, args.workers,
-                          args.refresh_legacy)
+                          args.refresh_legacy, args.item_key)
         if r:
             for k in grand:
                 grand[k] += r["stats"].get(k, 0)
     out(f"\n总计: A {grand['hit_pdf_footnote']} + B {grand['hit_springer_curl']}"
         f" + B2 {grand['hit_crossref_api']} 命中, 无显式 {grand['none']},"
-        f" 缓存跳过 {grand['cached']}" + ("（dry-run）" if args.dry_run else ""))
+        f" 缓存跳过 {grand['cached']}"
+        + (f", legacy 待迁移 {grand['legacy_needs_refresh']}"
+           if grand['legacy_needs_refresh'] else "")
+        + ("（dry-run）" if args.dry_run else ""))
 
 
 if __name__ == "__main__":

@@ -43,6 +43,11 @@ TIMEOUT = 20
 # independent names[]/emails[] arrays predate verified pairing semantics.
 SCHEMA_VERSION = "corresp/v1"
 
+# Marker for records where a channel was attempted but failed (no source,
+# PDF parse error, network error). Distinct from legacy: these are retryable
+# on the next backfill, while legacy records require explicit scoping.
+SCHEMA_UNAVAILABLE = "corresp/v1-unavailable"
+
 _net_gate_lock = threading.Lock()
 _net_gate_min = 0.0
 _net_gate_last = 0.0

@@ -218,21 +218,24 @@ def test_no_code_path_zips_legacy_arrays_into_pair():
 # Outcome distinction: verified_negative vs unavailable (retryable).
 # --------------------------------------------------------------------------- #
 
-def test_unavailable_record_no_source_has_no_schema():
-    """A record with no PDF and no DOI is unavailable, not a verified negative."""
-    # Simulate the "unavailable" outcome: no schema → stays retryable
-    rec = {"contacts": [], "channel": "none", "names": [], "emails": []}
-    assert "schema" not in rec
+def test_unavailable_record_no_source_has_unavailable_schema():
+    """A record with no PDF and no DOI is unavailable (retryable), not legacy."""
+    rec = {"schema": E.SCHEMA_UNAVAILABLE, "contacts": [], "channel": "none",
+           "names": [], "emails": []}
+    assert B.is_unavailable_record(rec)
+    assert not B.is_legacy_record(rec)
     assert not B.is_cache_hit(rec)  # retryable on next backfill
+    assert B.classify_record(rec) == "unavailable"
 
 
-def test_unavailable_record_after_error_has_no_schema():
+def test_unavailable_record_after_error_has_unavailable_schema():
     """A record where PDF parse or network failed is retryable, not a verified negative."""
-    # When work_a catches an exception, outcome="unavailable" → no schema
-    rec = {"contacts": [], "channel": "none", "names": [], "emails": [],
-           "raw_text": "", "fetched_at": "2026-09-04T00:00:00+00:00"}
-    assert "schema" not in rec
+    rec = {"schema": E.SCHEMA_UNAVAILABLE, "contacts": [], "channel": "none",
+           "names": [], "emails": [], "raw_text": "",
+           "fetched_at": "2026-09-04T00:00:00+00:00"}
+    assert B.is_unavailable_record(rec)
     assert not B.is_cache_hit(rec)
+    assert B.classify_record(rec) == "unavailable"
 
 
 def test_verified_negative_has_schema_and_is_cache_hit():
@@ -269,15 +272,15 @@ def test_extract_from_doi_returns_none_when_checked_but_no_pair():
 
 def test_unavailable_vs_verified_negative_classification():
     """The key distinction: unavailable records are retryable, verified negatives are not."""
-    unavailable = {"contacts": [], "channel": "none"}  # no schema
+    unavailable = {"schema": E.SCHEMA_UNAVAILABLE, "contacts": [], "channel": "none"}
     verified_neg = {"schema": E.SCHEMA_VERSION, "contacts": [], "channel": "none"}
 
     # Both have empty contacts, but only verified_neg is a cache hit
     assert not B.is_cache_hit(unavailable)
     assert B.is_cache_hit(verified_neg)
 
-    # Both classify as legacy/modern based on schema presence
-    assert B.classify_record(unavailable) == "legacy"  # no schema → legacy
+    # Classification distinguishes them
+    assert B.classify_record(unavailable) == "unavailable"
     assert B.classify_record(verified_neg) == "modern_negative"
 
 
@@ -322,8 +325,8 @@ def test_extract_from_pdf_returns_none_when_text_ok_but_no_pair():
         assert result is None  # verified negative: checked, no pair
 
 
-def test_work_a_pdf_unavailable_does_not_write_schema():
-    """Integration: when PDF has no text, the cache record must NOT carry schema."""
+def test_work_a_pdf_unavailable_does_not_write_schema_version():
+    """Integration: when PDF has no text, the cache record must NOT carry SCHEMA_VERSION."""
     from unittest.mock import patch
 
     # Simulate work_a's logic with a PDF that yields no text
@@ -337,12 +340,13 @@ def test_work_a_pdf_unavailable_does_not_write_schema():
 
         # Build the record the same way record() does
         if rec is None and outcome == "unavailable":
-            cache_rec = {"contacts": [], "channel": "none", "names": [],
-                         "emails": [], "raw_text": "", "fetched_at": "2026-09-04T00:00:00+00:00"}
+            cache_rec = {"schema": E.SCHEMA_UNAVAILABLE, "contacts": [],
+                         "channel": "none", "names": [], "emails": []}
         else:
             cache_rec = {"schema": E.SCHEMA_VERSION, "contacts": [], "channel": "none"}
 
-        assert "schema" not in cache_rec, "unavailable PDF must NOT carry schema"
+        assert cache_rec.get("schema") != E.SCHEMA_VERSION, \
+            "unavailable PDF must NOT carry SCHEMA_VERSION"
         assert not B.is_cache_hit(cache_rec), "unavailable PDF must stay retryable"
 
 
@@ -365,3 +369,109 @@ def test_work_a_pdf_verified_negative_writes_schema():
 
         assert "schema" in cache_rec, "verified negative must carry schema"
         assert B.is_cache_hit(cache_rec), "verified negative is a valid skip"
+
+
+# --------------------------------------------------------------------------- #
+# Selective refresh scoping: default must NOT auto-migrate all legacy records.
+# --------------------------------------------------------------------------- #
+
+def test_default_backfill_skips_legacy_records():
+    """Default backfill does NOT auto-migrate legacy records — only reports them."""
+    # Simulate is_todo under default mode (no refresh, no refresh_legacy, no item_keys)
+    legacy = {"names": ["Old"], "emails": ["old@y"], "channel": "pdf_footnote",
+              "contacts": []}
+    modern_neg = {"schema": E.SCHEMA_VERSION, "contacts": [], "channel": "none"}
+    modern_verified = {"schema": E.SCHEMA_VERSION,
+                       "contacts": [{"name": "X", "email": "x@y"}],
+                       "channel": "pdf_footnote"}
+
+    # Default is_todo: legacy → skip, modern → skip (both are cache hits or legacy)
+    assert not _default_is_todo(legacy), "legacy should be skipped in default mode"
+    assert not _default_is_todo(modern_neg), "modern negative is a cache hit"
+    assert not _default_is_todo(modern_verified), "modern verified is a cache hit"
+
+
+def test_default_backfill_retrying_unavailable():
+    """Default backfill DOES re-evaluate unavailable/failed records."""
+    # An unavailable record carries SCHEMA_UNAVAILABLE — it's a previous
+    # attempt that failed and should be retried.
+    unavailable = {"schema": E.SCHEMA_UNAVAILABLE, "contacts": [], "channel": "none"}
+    assert _default_is_todo(unavailable), "unavailable records should be retried"
+
+
+def test_item_key_targeting_only_refreshes_specified():
+    """--item-key K2 must only refresh K2, leaving K1/K3 untouched."""
+    legacy = {"names": ["Old"], "emails": ["old@y"], "channel": "pdf_footnote",
+              "contacts": []}
+    cache = {"K1": legacy, "K2": legacy, "K3": legacy}
+
+    # With item_keys=["K2"], only K2 is todo
+    todo = [k for k in cache if _is_todo_with_keys(cache.get(k), k, item_keys=["K2"])]
+    assert todo == ["K2"]
+
+
+def test_item_key_targeting_overrides_legacy_skip():
+    """--item-key can target a legacy record explicitly."""
+    legacy = {"names": ["Old"], "emails": ["old@y"], "channel": "pdf_footnote",
+              "contacts": []}
+    cache = {"K1": legacy}
+
+    # Default: legacy is skipped
+    assert not _default_is_todo(legacy)
+    # With item_keys targeting K1: it IS todo
+    todo = [k for k in cache if _is_todo_with_keys(cache.get(k), k, item_keys=["K1"])]
+    assert todo == ["K1"]
+
+
+def test_refresh_legacy_migrates_all_legacy():
+    """--refresh-legacy refreshes all legacy records."""
+    legacy = {"names": ["Old"], "emails": ["old@y"], "channel": "pdf_footnote",
+              "contacts": []}
+    modern = {"schema": E.SCHEMA_VERSION, "contacts": [], "channel": "none"}
+    cache = {"K1": legacy, "K2": modern, "K3": legacy}
+
+    todo = [k for k in cache if _is_todo_refresh_legacy(cache.get(k))]
+    assert todo == ["K1", "K3"]
+
+
+def test_legacy_needs_refresh_counting():
+    """Default mode counts legacy records that need refresh but aren't migrated."""
+    legacy = {"names": ["Old"], "emails": ["old@y"], "channel": "pdf_footnote",
+              "contacts": []}
+    modern = {"schema": E.SCHEMA_VERSION, "contacts": [], "channel": "none"}
+    cache = {"K1": legacy, "K2": legacy, "K3": modern}
+
+    # In default mode, legacy records are NOT todo but ARE counted
+    todo = [k for k in cache if _default_is_todo(cache.get(k))]
+    legacy_count = sum(1 for k in cache
+                       if B.is_legacy_record(cache[k]) and k not in set(todo))
+    assert legacy_count == 2  # K1, K2 are legacy and not in todo
+
+
+# Helper functions that mirror backfill_root's is_todo logic for testing.
+
+def _default_is_todo(old):
+    """Default is_todo: skip legacy & modern, retry unavailable."""
+    if B.is_modern_record(old):
+        return False
+    if B.is_legacy_record(old):
+        return False
+    # unavailable (or any non-modern, non-legacy) → retry
+    return True
+
+
+def _is_todo_with_keys(old, key, item_keys=None):
+    """is_todo with item_keys targeting."""
+    target_set = set(item_keys) if item_keys else None
+    if target_set is not None:
+        return key in target_set
+    if B.is_modern_record(old):
+        return False
+    if B.is_legacy_record(old):
+        return False
+    return True
+
+
+def _is_todo_refresh_legacy(old):
+    """is_todo in refresh_legacy mode."""
+    return B.is_legacy_record(old)
