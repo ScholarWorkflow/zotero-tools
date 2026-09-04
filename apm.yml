@@ -1,5 +1,5 @@
 name: zotero-tools
 version: 0.1.0
 description: Zotero reading, collection, and tagging workflows.
-targets: [opencode]
+targets: [opencode, codex]
 includes: auto
