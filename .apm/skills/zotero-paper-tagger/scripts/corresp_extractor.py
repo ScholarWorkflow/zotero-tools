@@ -96,6 +96,13 @@ MARK_EN = re.compile(r"(?:correspond\w*|author to whom)", re.I)
 MARK_JP = re.compile(r"(対応著者|責任著者|連絡先)")
 SYMBOLS = "*†‡✉§¶"
 
+# 显式邮箱字段：去掉邮箱字段标签（E-mail:/Email:/メール:）和邮箱地址后，
+# 整行只剩符号/标点才算干净的邮箱字段行。
+RE_EMAIL_FIELD_LABEL = re.compile(
+    r"\b(?:e-?mail|mail|メール(?:アドレス)?)\s*[:：]\s*", re.I)
+RE_EMAIL_LINE_RESIDUE = re.compile(
+    r"^[\s*†‡§¶✉()（）\[\]【】<>、。，,.．;；:：!！?？\-–—=~|]*$")
+
 
 def _is_author_note(m, text):
     after = text[m.end():m.end() + 60]
@@ -144,6 +151,9 @@ def _clean_names(cands):
 
 
 def _names_in(text):
+    # 先剥离显式邮箱字段标签：标签紧跟姓名时（"Alex Example E-mail: ..."），
+    # 其大写 "E" 会被姓名正则粘成 "Alex Example E"。
+    text = RE_EMAIL_FIELD_LABEL.sub(" ", text or "")
     found = list(RE_INITIALS_NAME.findall(text))
     for m in RE_FULL_NAME.finditer(text):
         s = m.group(0)
@@ -196,17 +206,43 @@ def _single_proven_pair(text, channel, confidence="high"):
     return [c] if c else []
 
 
-def _pdf_line_proven_pair(text, marker):
-    """Only pair evidence contained on the correspondence marker's own text line.
+def _is_email_field_line(line):
+    """该行本身是否为显式邮箱字段：行内确有邮箱地址或邮箱字段标签，且去掉
+    标签和地址后只剩符号/标点。纯标点/分隔线（-----、*、()）不含任何邮箱
+    证据，是结构边界而非邮箱字段；带散文注记的行（"E-mail: office@example.org
+    (Editorial Office)"）同样不是干净字段，都不得吸进有界通讯块。"""
+    line = (line or "").strip()
+    if not line:
+        return False
+    if not (RE_EMAIL.search(line) or RE_EMAIL_FIELD_LABEL.search(line)):
+        return False
+    residue = RE_EMAIL.sub(" ", RE_EMAIL_FIELD_LABEL.sub(" ", line))
+    return bool(RE_EMAIL_LINE_RESIDUE.match(residue))
 
-    The wider 400-character window remains useful for legacy names[]/emails[] discovery,
-    but proximity across line boundaries is not enough to prove a name/email relation.
+
+def _pdf_bounded_block_proven_pair(text, marker):
+    """Only pair evidence inside the marker's bounded correspondence block.
+
+    The block is the marker's own line plus immediately following lines that are
+    themselves explicit email fields: lines holding nothing beyond email-field
+    labels (`E-mail:`/`Email:`/`メール:`), the address(es) itself, and allowed
+    punctuation. Annotated or prose email lines (editorial/support notes) do
+    not qualify. The first line that is not an email field — a blank line,
+    affiliation, editorial/funding prose — ends the block, so an email in a
+    later unrelated block is never absorbed. Within the block the counts must
+    still be exactly one name and one email; anything else stays unpaired.
     """
     line_start = text.rfind("\n", 0, marker.start()) + 1
-    line_end = text.find("\n", marker.end())
-    if line_end < 0:
-        line_end = len(text)
-    return _single_proven_pair(text[line_start:line_end], "pdf_footnote")
+    nl = text.find("\n", marker.end())
+    parts = [text[line_start:nl if nl >= 0 else len(text)]]
+    while nl >= 0:
+        nxt = text.find("\n", nl + 1)
+        line = text[nl + 1:nxt if nxt >= 0 else len(text)]
+        if not _is_email_field_line(line):
+            break
+        parts.append(line)
+        nl = nxt
+    return _single_proven_pair("\n".join(parts), "pdf_footnote")
 
 
 def _mk(names, emails, raw, channel, contacts=None):
@@ -273,9 +309,11 @@ def parse_pdf_text(text):
         names.extend(local_names)
 
         # contacts[] is intentionally stricter than the compatibility arrays: only
-        # the marker's own bounded line may prove a pair. Later lines remain legacy
-        # evidence but cannot be paired merely because they are nearby.
-        contacts.extend(_pdf_line_proven_pair(text, m))
+        # the marker's bounded correspondence block may prove a pair. The block is
+        # the marker line plus immediately following explicit email-field lines and
+        # ends at the first non-field line, so later prose is never paired merely
+        # because it is nearby.
+        contacts.extend(_pdf_bounded_block_proven_pair(text, m))
     rec = _mk(names, emails, " || ".join(raw_parts), "pdf_footnote", contacts)
     return rec if (rec["names"] or rec["emails"]) else None
 

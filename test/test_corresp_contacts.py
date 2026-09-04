@@ -59,6 +59,116 @@ def test_pdf_ambiguous_names_and_emails_are_not_positionally_paired():
     assert rec["contacts"] == []
 
 
+def test_pdf_two_line_correspondence_block_emits_contact():
+    text = (
+        "A paper title\n"
+        "* Corresponding author: Taro Yamada\n"
+        "E-mail: taro@example.ac.jp\n"
+        + "body " * 30
+    )
+    rec = E.parse_pdf_text(text)
+    assert rec["names"] == ["Taro Yamada"]
+    assert rec["emails"] == ["taro@example.ac.jp"]
+    assert rec["contacts"] == [{
+        "name": "Taro Yamada",
+        "email": "taro@example.ac.jp",
+        "confidence": "high",
+        "channel": "pdf_footnote",
+    }]
+
+
+def test_pdf_bare_email_line_in_block_emits_contact():
+    text = (
+        "A paper title\n"
+        "* Corresponding author: Hanako Sample\n"
+        "hanako@example.ac.jp\n"
+        + "body " * 30
+    )
+    rec = E.parse_pdf_text(text)
+    assert rec["contacts"] == [{
+        "name": "Hanako Sample",
+        "email": "hanako@example.ac.jp",
+        "confidence": "high",
+        "channel": "pdf_footnote",
+    }]
+
+
+def test_pdf_editorial_email_on_next_line_is_not_absorbed():
+    text = (
+        "A paper title\n"
+        "* Corresponding author: Alex Example\n"
+        "For editorial questions only: editorial@example.org\n"
+        + "body " * 30
+    )
+    rec = E.parse_pdf_text(text)
+    assert rec["emails"] == ["editorial@example.org"]
+    assert rec["contacts"] == []
+
+
+def test_pdf_labeled_email_line_with_editorial_note_is_not_absorbed():
+    text = (
+        "A paper title\n"
+        "* Corresponding author: Alex Example\n"
+        "E-mail: editorial@example.org (Editorial Office)\n"
+        + "body " * 30
+    )
+    rec = E.parse_pdf_text(text)
+    assert rec["emails"] == ["editorial@example.org"]
+    assert rec["contacts"] == []
+
+
+def test_pdf_labeled_email_line_with_support_prose_is_not_absorbed():
+    text = (
+        "A paper title\n"
+        "* Corresponding author: Alex Example\n"
+        "Email: support@example.org for submission questions\n"
+        + "body " * 30
+    )
+    rec = E.parse_pdf_text(text)
+    assert rec["emails"] == ["support@example.org"]
+    assert rec["contacts"] == []
+
+
+def test_pdf_punctuation_separator_ends_block_before_bare_email():
+    text = (
+        "A paper title\n"
+        "* Corresponding author: Alex Example\n"
+        "-----\n"
+        "editorial@example.org\n"
+        + "body " * 30
+    )
+    rec = E.parse_pdf_text(text)
+    assert rec["emails"] == ["editorial@example.org"]
+    assert rec["contacts"] == []
+
+
+def test_pdf_email_line_after_affiliation_line_is_outside_block():
+    text = (
+        "A paper title\n"
+        "* Corresponding author: Alex Example\n"
+        "Department of Chemistry, Example University\n"
+        "E-mail: dept@example.edu\n"
+        + "body " * 30
+    )
+    rec = E.parse_pdf_text(text)
+    assert rec["emails"] == ["dept@example.edu"]
+    assert rec["contacts"] == []
+
+
+def test_pdf_multi_line_two_authors_two_emails_stay_unpaired():
+    text = (
+        "A paper title\n"
+        "* Corresponding authors: Alex Example, Betty Sample\n"
+        "E-mail: alex@example.edu\n"
+        "E-mail: betty@example.edu\n"
+        + "body " * 30
+    )
+    rec = E.parse_pdf_text(text)
+    assert rec["names"] == ["Alex Example", "Betty Sample"]
+    assert set(rec["emails"]) == {"alex@example.edu", "betty@example.edu"}
+    assert rec["contacts"] == []
+
+
 def test_springer_pair_requires_unique_pair_inside_correspondence_block():
     html = (
         '<p id="corresponding-author-list">Correspondence to Alex Example '
@@ -81,6 +191,21 @@ def test_springer_neighbor_email_is_not_used_to_infer_pair():
     rec = E.parse_springer_html(html)
     assert rec["names"] == ["Alex Example"]
     assert rec["contacts"] == []
+
+
+def test_springer_multiline_container_binds_name_and_email():
+    html = (
+        '<p id="corresponding-author-list">Correspondence to Alex Example'
+        '<br>E-mail: alex@example.edu</p>'
+    )
+    rec = E.parse_springer_html(html)
+    assert rec["names"] == ["Alex Example"]
+    assert rec["contacts"] == [{
+        "name": "Alex Example",
+        "email": "alex@example.edu",
+        "confidence": "high",
+        "channel": "springer_curl",
+    }]
 
 
 def test_item_doi_accepts_zotero_uppercase_field():
