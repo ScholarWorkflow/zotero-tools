@@ -92,16 +92,51 @@ def is_unavailable_record(rec):
     return isinstance(rec, dict) and rec.get("schema") == E.SCHEMA_UNAVAILABLE
 
 
+def _is_pr11_unavailable_legacy_shape(rec):
+    """Detect records written by the just-merged PR #11 that lack any schema marker.
+
+    PR #11 deliberately wrote failed/no-source attempts without a schema field so
+    the ordinary next backfill would retry them.  Without this recognition, an
+    upgrade to PR #12 would classify every such record as legacy and silently
+    stop retrying it.
+
+    Shape fingerprint: channel="none" + empty contacts/names/emails + provenance
+    (itemKey, doi, paper_year, title) + a timestamp — i.e. exactly what the
+    pre-PR12 ``record(..., rec=None, outcome="unavailable")`` path wrote.
+    """
+    if not isinstance(rec, dict):
+        return False
+    if rec.get("schema"):
+        return False  # already marked (modern or post-#12 unavailable)
+    if rec.get("channel") != "none":
+        return False  # legacy may have non-empty channel; that's the migration case
+    if rec.get("contacts") or rec.get("names") or rec.get("emails"):
+        return False
+    # Provenance keys prove this came from the backfill record() path,
+    # not from a stale pre-PR7 cache that happens to have all-empty arrays.
+    if not all(k in rec for k in ("itemKey", "fetched_at")):
+        return False
+    return True
+
+
 def is_legacy_record(rec):
     """True when the record predates the verified-pair contract.
 
     Legacy records have independent names[]/emails[] arrays without ANY schema
     marker (neither SCHEMA_VERSION nor SCHEMA_UNAVAILABLE).  They may look
     positive (non-empty channel) but cannot be trusted as verified pairs.
+
+    Pre-PR12 schema-less unavailable records (a transient shape produced by
+    the just-merged PR #11) are NOT legacy — they must remain retryable on
+    upgrade so that failed attempts are not silently lost.
     """
     if not isinstance(rec, dict):
         return False
-    return "schema" not in rec
+    if "schema" in rec:
+        return False
+    if _is_pr11_unavailable_legacy_shape(rec):
+        return False
+    return True
 
 
 def classify_record(rec):
@@ -115,6 +150,8 @@ def classify_record(rec):
         return "modern_negative"
     if schema == E.SCHEMA_UNAVAILABLE:
         return "unavailable"
+    if _is_pr11_unavailable_legacy_shape(rec):
+        return "unavailable"  # backward-compat with PR #11 writes
     return "legacy"
 
 
@@ -213,6 +250,20 @@ def backfill_root(mcp, prog_root, dry_run=False, refresh=False, limit=None,
     if not got:
         return None
     real, pdf_of = got
+
+    # item_keys target list (if provided): only these keys are refreshed.
+    # When item_keys is set, it is the strictest scope: it must NOT be
+    # silently widened by `refresh=True` or `refresh_legacy=True`, because
+    # that would cause broad PDF/network work — the very thing issue #8
+    # asks to avoid.  --item-key is therefore mutually exclusive with the
+    # other scope-broadening flags; callers should pick one scope.
+    # Resolve precedence BEFORE initializing the cache, so that an
+    # item-key-narrowed run does not blank out the existing cache.
+    target_set = set(item_keys) if item_keys else None
+    if target_set is not None and (refresh or refresh_legacy):
+        refresh = False
+        refresh_legacy = False
+
     cache = {} if refresh else load_cache(prog_root)
 
     stats = {"hit_pdf_footnote": 0, "hit_springer_curl": 0, "hit_crossref_api": 0,
@@ -221,9 +272,6 @@ def backfill_root(mcp, prog_root, dry_run=False, refresh=False, limit=None,
     samples = []
     lock = threading.Lock()
     counters = {"processed": 0, "net": 0}
-
-    # item_keys target list (if provided): only these keys are refreshed.
-    target_set = set(item_keys) if item_keys else None
 
     def is_todo(k):
         old = cache.get(k)

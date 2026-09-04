@@ -285,6 +285,40 @@ def test_unavailable_vs_verified_negative_classification():
 
 
 # --------------------------------------------------------------------------- #
+# Backward-compat: PR #11 schema-less unavailable records must stay retryable.
+# --------------------------------------------------------------------------- #
+
+def test_pr11_unavailable_legacy_shape_classified_as_unavailable():
+    """A no-schema record with PR #11's exact shape (channel='none', provenance
+    keys, empty arrays) must be classified as 'unavailable', not 'legacy'."""
+    pr11 = {
+        "contacts": [], "channel": "none", "names": [], "emails": [],
+        "raw_text": "", "fetched_at": "2026-09-04T00:00:00+00:00",
+        "itemKey": "K1", "doi": None, "paper_year": 2025, "title": "X",
+    }
+    assert B.classify_record(pr11) == "unavailable"
+    assert not B.is_legacy_record(pr11)
+    assert not B.is_cache_hit(pr11)
+
+
+def test_true_legacy_with_channel_is_not_pr11_unavailable():
+    """A real pre-PR7 record with non-empty channel and arrays IS legacy."""
+    true_legacy = {
+        "names": ["Alex"], "emails": ["a@x"], "channel": "pdf_footnote",
+        "contacts": [],
+    }
+    assert B.classify_record(true_legacy) == "legacy"
+    assert B.is_legacy_record(true_legacy)
+
+
+def test_schema_less_with_nonempty_channel_is_legacy_not_pr11_unavailable():
+    """Schema-less record with channel='pdf_footnote' is legacy, not unavailable."""
+    rec = {"channel": "pdf_footnote", "contacts": [], "names": ["X"],
+           "emails": ["x@y"], "itemKey": "K", "fetched_at": "2026-09-04T00:00:00+00:00"}
+    assert B.classify_record(rec) == "legacy"  # not the PR #11 shape
+
+
+# --------------------------------------------------------------------------- #
 # PDF unavailable path: no extractable text must NOT become a verified negative.
 # --------------------------------------------------------------------------- #
 
