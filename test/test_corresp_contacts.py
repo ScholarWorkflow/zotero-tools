@@ -129,6 +129,19 @@ def test_pdf_labeled_email_line_with_support_prose_is_not_absorbed():
     assert rec["contacts"] == []
 
 
+def test_pdf_punctuation_separator_ends_block_before_bare_email():
+    text = (
+        "A paper title\n"
+        "* Corresponding author: Alex Example\n"
+        "-----\n"
+        "editorial@example.org\n"
+        + "body " * 30
+    )
+    rec = E.parse_pdf_text(text)
+    assert rec["emails"] == ["editorial@example.org"]
+    assert rec["contacts"] == []
+
+
 def test_pdf_email_line_after_affiliation_line_is_outside_block():
     text = (
         "A paper title\n"

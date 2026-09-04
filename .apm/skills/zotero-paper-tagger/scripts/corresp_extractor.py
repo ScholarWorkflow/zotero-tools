@@ -207,12 +207,14 @@ def _single_proven_pair(text, channel, confidence="high"):
 
 
 def _is_email_field_line(line):
-    """该行本身是否为显式邮箱字段：去掉邮箱字段标签和邮箱地址后只剩
-    符号/标点。带散文注记的行（如 "E-mail: office@example.org (Editorial
-    Office)" 或 "Email: support@example.org for submission questions"）
-    不是干净的邮箱字段，不得吸进有界通讯块。"""
+    """该行本身是否为显式邮箱字段：行内确有邮箱地址或邮箱字段标签，且去掉
+    标签和地址后只剩符号/标点。纯标点/分隔线（-----、*、()）不含任何邮箱
+    证据，是结构边界而非邮箱字段；带散文注记的行（"E-mail: office@example.org
+    (Editorial Office)"）同样不是干净字段，都不得吸进有界通讯块。"""
     line = (line or "").strip()
     if not line:
+        return False
+    if not (RE_EMAIL.search(line) or RE_EMAIL_FIELD_LABEL.search(line)):
         return False
     residue = RE_EMAIL.sub(" ", RE_EMAIL_FIELD_LABEL.sub(" ", line))
     return bool(RE_EMAIL_LINE_RESIDUE.match(residue))
