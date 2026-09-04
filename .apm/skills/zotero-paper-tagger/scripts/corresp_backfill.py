@@ -273,7 +273,14 @@ def backfill_root(mcp, prog_root, dry_run=False, refresh=False, limit=None,
         rec, outcome = None, "unavailable"
         try:
             rec = E.extract_from_pdf(pdf)
-            outcome = "verified_negative"  # PDF parsed, just no pair found
+            outcome = "verified_negative"  # PDF parsed successfully, just no pair found
+        except E.PdfUnavailable as e:
+            # PDF had no extractable text (scan, empty, etc.) — NOT a verified
+            # negative. Stay retryable so a future OCR or text-layer fix can
+            # re-evaluate.
+            with lock:
+                stats["errors"].append(f"{ikey} PDF 无可分析文本: {type(e).__name__}")
+            outcome = "unavailable"
         except Exception as e:
             with lock:
                 stats["errors"].append(f"{ikey} PDF 解析失败: {type(e).__name__}")

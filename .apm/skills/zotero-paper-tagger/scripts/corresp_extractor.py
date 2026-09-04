@@ -287,7 +287,29 @@ def parse_pdf_text(text):
 
 
 def extract_from_pdf(pdf_path):
-    return parse_pdf_text(pdf_page_text(pdf_path))
+    """Extract correspondence info from a PDF's first page.
+
+    Returns a record dict if correspondence evidence was found.
+    Returns None if the PDF was successfully parsed but no verified pair found
+    (verified negative).
+    Raises PdfUnavailable if the PDF could not be opened or yielded too
+    little text to analyze (no extractable text layer, scan, etc.) — this is
+    distinct from "checked and found no pair".
+    """
+    text = pdf_page_text(pdf_path)
+    if not text or len(text.strip()) < 50:
+        raise PdfUnavailable(f"PDF yielded no analyzable text: {pdf_path}")
+    return parse_pdf_text(text)
+
+
+class PdfUnavailable(Exception):
+    """Raised when a PDF cannot be analyzed (no text layer, scan, etc.).
+
+    This is distinct from a verified negative: the PDF was never actually
+    checked for correspondence pairs, so the result should NOT carry the
+    schema marker and should remain retryable.
+    """
+    pass
 
 
 # ---------------------------------------------------------------- 渠道 B: Springer/Nature 落地页

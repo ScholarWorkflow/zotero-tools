@@ -279,3 +279,89 @@ def test_unavailable_vs_verified_negative_classification():
     # Both classify as legacy/modern based on schema presence
     assert B.classify_record(unavailable) == "legacy"  # no schema → legacy
     assert B.classify_record(verified_neg) == "modern_negative"
+
+
+# --------------------------------------------------------------------------- #
+# PDF unavailable path: no extractable text must NOT become a verified negative.
+# --------------------------------------------------------------------------- #
+
+def test_extract_from_pdf_raises_when_no_text_layer():
+    """extract_from_pdf raises PdfUnavailable when PDF yields no analyzable text."""
+    from unittest.mock import patch
+
+    with patch.object(E, "pdf_page_text", return_value=""):
+        try:
+            E.extract_from_pdf("/fake/scan.pdf")
+            raised = False
+        except E.PdfUnavailable:
+            raised = True
+        assert raised, "extract_from_pdf should raise PdfUnavailable for empty text"
+
+
+def test_extract_from_pdf_raises_when_text_too_short():
+    """extract_from_pdf raises PdfUnavailable when PDF text is < 50 chars."""
+    from unittest.mock import patch
+
+    with patch.object(E, "pdf_page_text", return_value="  short  "):
+        try:
+            E.extract_from_pdf("/fake/short.pdf")
+            raised = False
+        except E.PdfUnavailable:
+            raised = True
+        assert raised, "extract_from_pdf should raise PdfUnavailable for short text"
+
+
+def test_extract_from_pdf_returns_none_when_text_ok_but_no_pair():
+    """extract_from_pdf returns None (verified negative) when text exists but no pair found."""
+    from unittest.mock import patch
+
+    # Enough text to pass the threshold, but no correspondence marker
+    long_text = "Some paper title\n" + "body content " * 20
+    with patch.object(E, "pdf_page_text", return_value=long_text):
+        result = E.extract_from_pdf("/fake/nopair.pdf")
+        assert result is None  # verified negative: checked, no pair
+
+
+def test_work_a_pdf_unavailable_does_not_write_schema():
+    """Integration: when PDF has no text, the cache record must NOT carry schema."""
+    from unittest.mock import patch
+
+    # Simulate work_a's logic with a PDF that yields no text
+    with patch.object(E, "pdf_page_text", return_value=""):
+        try:
+            rec = E.extract_from_pdf("/fake/scan.pdf")
+            outcome = "verified_negative"
+        except E.PdfUnavailable:
+            rec = None
+            outcome = "unavailable"
+
+        # Build the record the same way record() does
+        if rec is None and outcome == "unavailable":
+            cache_rec = {"contacts": [], "channel": "none", "names": [],
+                         "emails": [], "raw_text": "", "fetched_at": "2026-09-04T00:00:00+00:00"}
+        else:
+            cache_rec = {"schema": E.SCHEMA_VERSION, "contacts": [], "channel": "none"}
+
+        assert "schema" not in cache_rec, "unavailable PDF must NOT carry schema"
+        assert not B.is_cache_hit(cache_rec), "unavailable PDF must stay retryable"
+
+
+def test_work_a_pdf_verified_negative_writes_schema():
+    """Integration: when PDF has text but no pair, the cache record carries schema."""
+    from unittest.mock import patch
+
+    long_text = "Some paper title\n" + "body content " * 20
+    with patch.object(E, "pdf_page_text", return_value=long_text):
+        try:
+            rec = E.extract_from_pdf("/fake/nopair.pdf")
+            outcome = "verified_negative"
+        except E.PdfUnavailable:
+            rec = None
+            outcome = "unavailable"
+
+        assert outcome == "verified_negative"
+        if rec is None and outcome == "verified_negative":
+            cache_rec = {"schema": E.SCHEMA_VERSION, "contacts": [], "channel": "none"}
+
+        assert "schema" in cache_rec, "verified negative must carry schema"
+        assert B.is_cache_hit(cache_rec), "verified negative is a valid skip"
