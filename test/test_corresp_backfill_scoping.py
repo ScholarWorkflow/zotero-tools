@@ -28,14 +28,44 @@ def _item(title):
     }
 
 
-def test_default_backfill_retries_pr11_unavailable_record(tmp_path):
-    """A no-schema unavailable record written by PR #11 must not become stuck as legacy.
+def test_default_backfill_skips_pr11_unavailable_record_until_explicit_refresh(tmp_path):
+    """A no-schema record written by PR #11 stays legacy until explicitly scoped.
 
-    PR #11 deliberately wrote failed/no-source attempts without a schema so the
-    ordinary next backfill would retry them.  PR #12 adds SCHEMA_UNAVAILABLE,
-    but an upgrade must also preserve retry behavior for records already written
-    by PR #11.
+    The shape fingerprint of PR #11 transient unavailable writes collides with
+    pre-PR11 legacy empty records, so a default backfill cannot safely
+    auto-retry them — that would re-introduce broad re-fetching.  Callers
+    who genuinely want to retry a PR #11 transient must opt in via
+    --item-key or --refresh-legacy, after which the record is rewritten with
+    the new SCHEMA_UNAVAILABLE marker and becomes retryable.
     """
+    real = {"K1": _item("Unavailable paper")}
+    pr11_unavailable = {
+        "contacts": [],
+        "channel": "none",
+        "names": [],
+        "emails": [],
+        "raw_text": "",
+        "fetched_at": "2026-09-04T00:00:00+00:00",
+        "itemKey": "K1",
+        "doi": None,
+        "paper_year": 2025,
+        "title": "Unavailable paper",
+    }
+    before = dict(pr11_unavailable)
+
+    with patch.object(B, "collect_items", return_value=(real, {})), \
+            patch.object(B, "load_cache", return_value={"K1": dict(pr11_unavailable)}), \
+            patch.object(B, "save_cache"):
+        result = B.backfill_root(None, tmp_path, workers=1)
+
+    # Default backfill: legacy record is reported but not retried.
+    assert result["stats"]["no_source"] == 0
+    assert result["stats"]["legacy_needs_refresh"] == 1
+    assert result["cache"]["K1"] == before  # byte-for-byte unchanged
+
+
+def test_explicit_item_key_migrates_pr11_unavailable(tmp_path):
+    """With --item-key, a PR #11 transient unavailable is rewritten with SCHEMA_UNAVAILABLE."""
     real = {"K1": _item("Unavailable paper")}
     pr11_unavailable = {
         "contacts": [],
@@ -53,14 +83,14 @@ def test_default_backfill_retries_pr11_unavailable_record(tmp_path):
     with patch.object(B, "collect_items", return_value=(real, {})), \
             patch.object(B, "load_cache", return_value={"K1": dict(pr11_unavailable)}), \
             patch.object(B, "save_cache"):
-        result = B.backfill_root(None, tmp_path, workers=1)
+        result = B.backfill_root(
+            None, tmp_path, workers=1, item_keys=["K1"])
 
-    # The previous unavailable attempt should be retried. With no source still
-    # available in this fixture, the retry writes the new explicit unavailable
-    # marker rather than leaving the old no-schema record permanently skipped.
+    # With explicit --item-key, the record is retried and the new
+    # SCHEMA_UNAVAILABLE marker is written (preserving retryability for
+    # future default backfills).
     assert result["stats"]["no_source"] == 1
     assert result["cache"]["K1"]["schema"] == B.E.SCHEMA_UNAVAILABLE
-    assert result["stats"]["legacy_needs_refresh"] == 0
 
 
 def test_item_key_scope_wins_over_global_refresh(tmp_path):

@@ -92,33 +92,6 @@ def is_unavailable_record(rec):
     return isinstance(rec, dict) and rec.get("schema") == E.SCHEMA_UNAVAILABLE
 
 
-def _is_pr11_unavailable_legacy_shape(rec):
-    """Detect records written by the just-merged PR #11 that lack any schema marker.
-
-    PR #11 deliberately wrote failed/no-source attempts without a schema field so
-    the ordinary next backfill would retry them.  Without this recognition, an
-    upgrade to PR #12 would classify every such record as legacy and silently
-    stop retrying it.
-
-    Shape fingerprint: channel="none" + empty contacts/names/emails + provenance
-    (itemKey, doi, paper_year, title) + a timestamp — i.e. exactly what the
-    pre-PR12 ``record(..., rec=None, outcome="unavailable")`` path wrote.
-    """
-    if not isinstance(rec, dict):
-        return False
-    if rec.get("schema"):
-        return False  # already marked (modern or post-#12 unavailable)
-    if rec.get("channel") != "none":
-        return False  # legacy may have non-empty channel; that's the migration case
-    if rec.get("contacts") or rec.get("names") or rec.get("emails"):
-        return False
-    # Provenance keys prove this came from the backfill record() path,
-    # not from a stale pre-PR7 cache that happens to have all-empty arrays.
-    if not all(k in rec for k in ("itemKey", "fetched_at")):
-        return False
-    return True
-
-
 def is_legacy_record(rec):
     """True when the record predates the verified-pair contract.
 
@@ -126,17 +99,17 @@ def is_legacy_record(rec):
     marker (neither SCHEMA_VERSION nor SCHEMA_UNAVAILABLE).  They may look
     positive (non-empty channel) but cannot be trusted as verified pairs.
 
-    Pre-PR12 schema-less unavailable records (a transient shape produced by
-    the just-merged PR #11) are NOT legacy — they must remain retryable on
-    upgrade so that failed attempts are not silently lost.
+    Note: this also returns True for schema-less empty records that look like
+    a transient "unavailable" — i.e. records the just-merged PR #11 wrote
+    without a schema field.  An earlier attempt tried to fingerprint that
+    shape, but the fingerprint collided with pre-PR11 legacy writes and
+    would have re-introduced broad re-fetching.  We therefore require an
+    explicit SCHEMA_UNAVAILABLE marker going forward; legacy records (in the
+    broad sense) must be migrated via --refresh-legacy or --item-key.
     """
     if not isinstance(rec, dict):
         return False
-    if "schema" in rec:
-        return False
-    if _is_pr11_unavailable_legacy_shape(rec):
-        return False
-    return True
+    return "schema" not in rec
 
 
 def classify_record(rec):
@@ -150,8 +123,6 @@ def classify_record(rec):
         return "modern_negative"
     if schema == E.SCHEMA_UNAVAILABLE:
         return "unavailable"
-    if _is_pr11_unavailable_legacy_shape(rec):
-        return "unavailable"  # backward-compat with PR #11 writes
     return "legacy"
 
 

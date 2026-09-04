@@ -285,23 +285,30 @@ def test_unavailable_vs_verified_negative_classification():
 
 
 # --------------------------------------------------------------------------- #
-# Backward-compat: PR #11 schema-less unavailable records must stay retryable.
+# Backward-compat: schema-less records are treated uniformly as legacy.
 # --------------------------------------------------------------------------- #
 
-def test_pr11_unavailable_legacy_shape_classified_as_unavailable():
-    """A no-schema record with PR #11's exact shape (channel='none', provenance
-    keys, empty arrays) must be classified as 'unavailable', not 'legacy'."""
+def test_pr11_shape_is_legacy_not_unavailable():
+    """A no-schema record with PR #11's exact shape is legacy, not unavailable.
+
+    Earlier this helper recognized the PR #11 transient unavailable shape, but
+    the shape fingerprint collided with pre-PR11 legacy empty records and would
+    have re-introduced broad re-fetching.  We now require an explicit
+    SCHEMA_UNAVAILABLE marker; callers wanting to migrate legacy records
+    (including transient unavailables from PR #11) must use --item-key or
+    --refresh-legacy.
+    """
     pr11 = {
         "contacts": [], "channel": "none", "names": [], "emails": [],
         "raw_text": "", "fetched_at": "2026-09-04T00:00:00+00:00",
         "itemKey": "K1", "doi": None, "paper_year": 2025, "title": "X",
     }
-    assert B.classify_record(pr11) == "unavailable"
-    assert not B.is_legacy_record(pr11)
+    assert B.classify_record(pr11) == "legacy"
+    assert B.is_legacy_record(pr11)
     assert not B.is_cache_hit(pr11)
 
 
-def test_true_legacy_with_channel_is_not_pr11_unavailable():
+def test_true_legacy_with_channel_is_legacy():
     """A real pre-PR7 record with non-empty channel and arrays IS legacy."""
     true_legacy = {
         "names": ["Alex"], "emails": ["a@x"], "channel": "pdf_footnote",
@@ -311,11 +318,21 @@ def test_true_legacy_with_channel_is_not_pr11_unavailable():
     assert B.is_legacy_record(true_legacy)
 
 
-def test_schema_less_with_nonempty_channel_is_legacy_not_pr11_unavailable():
-    """Schema-less record with channel='pdf_footnote' is legacy, not unavailable."""
+def test_schema_less_with_nonempty_channel_is_legacy():
+    """Schema-less record with channel='pdf_footnote' is legacy."""
     rec = {"channel": "pdf_footnote", "contacts": [], "names": ["X"],
            "emails": ["x@y"], "itemKey": "K", "fetched_at": "2026-09-04T00:00:00+00:00"}
-    assert B.classify_record(rec) == "legacy"  # not the PR #11 shape
+    assert B.classify_record(rec) == "legacy"
+
+
+def test_only_explicit_schema_unavailable_marker_is_unavailable():
+    """Only records with SCHEMA_UNAVAILABLE are auto-retried on default backfill."""
+    marked = {"schema": E.SCHEMA_UNAVAILABLE, "contacts": [], "channel": "none",
+              "names": [], "emails": [], "itemKey": "K", "fetched_at": "x"}
+    unmarked = {"contacts": [], "channel": "none", "names": [], "emails": [],
+                "itemKey": "K", "fetched_at": "x"}
+    assert B.classify_record(marked) == "unavailable"
+    assert B.classify_record(unmarked) == "legacy"  # even with identical other fields
 
 
 # --------------------------------------------------------------------------- #
