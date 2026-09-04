@@ -36,7 +36,8 @@ Newly backfilled records also expose structured pairs and paper provenance:
 Examples:
 
 - one PDF correspondence-marker line containing exactly one detected name and one email: pair allowed;
-- a PDF marker line with one name followed immediately by explicit email-field lines (a labeled `E-mail:`/`Email:`/`メール:` line, or a line holding only an email address): the bounded block is the marker line plus those consecutive email-field lines, and exactly one name plus one email inside it yields one pair — e.g. `* Corresponding author: Taro Yamada` + `E-mail: taro@example.ac.jp`;
+- a PDF marker line with one name followed immediately by explicit email-field lines: an email-field line holds nothing beyond an `E-mail:`/`Email:`/`メール:` label (the label itself being optional) and the address, plus only symbols/punctuation. The bounded block is the marker line plus those consecutive email-field lines, and exactly one name plus one email inside it yields one pair — e.g. `* Corresponding author: Taro Yamada` + `E-mail: taro@example.ac.jp`;
+- an annotated email line such as `E-mail: editorial@example.org (Editorial Office)` or `Email: support@example.org for submission questions` is **not** an email field: it ends the bounded block and is never paired with the author, even though the address may remain in legacy `emails[]`;
 - the bounded block ends at the first line that is not an explicit email field (blank line, affiliation, editorial/funding prose): an email in such a later unrelated block stays unpaired, even though it may remain in legacy `emails[]`;
 - a PDF marker line containing a name while an email appears only on a later non-field line (editorial notes, affiliation text): `contacts: []`;
 - one Springer `#corresponding-author-list` block containing exactly one detected name and one email: pair allowed, including when the container binds the name and email across child elements such as `<br>`;

@@ -105,6 +105,30 @@ def test_pdf_editorial_email_on_next_line_is_not_absorbed():
     assert rec["contacts"] == []
 
 
+def test_pdf_labeled_email_line_with_editorial_note_is_not_absorbed():
+    text = (
+        "A paper title\n"
+        "* Corresponding author: Alex Example\n"
+        "E-mail: editorial@example.org (Editorial Office)\n"
+        + "body " * 30
+    )
+    rec = E.parse_pdf_text(text)
+    assert rec["emails"] == ["editorial@example.org"]
+    assert rec["contacts"] == []
+
+
+def test_pdf_labeled_email_line_with_support_prose_is_not_absorbed():
+    text = (
+        "A paper title\n"
+        "* Corresponding author: Alex Example\n"
+        "Email: support@example.org for submission questions\n"
+        + "body " * 30
+    )
+    rec = E.parse_pdf_text(text)
+    assert rec["emails"] == ["support@example.org"]
+    assert rec["contacts"] == []
+
+
 def test_pdf_email_line_after_affiliation_line_is_outside_block():
     text = (
         "A paper title\n"

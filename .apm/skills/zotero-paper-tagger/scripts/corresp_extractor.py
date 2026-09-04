@@ -96,11 +96,10 @@ MARK_EN = re.compile(r"(?:correspond\w*|author to whom)", re.I)
 MARK_JP = re.compile(r"(対応著者|責任著者|連絡先)")
 SYMBOLS = "*†‡✉§¶"
 
-# 显式邮箱字段：带标签（E-mail:/Email:/メール:）或整行只有邮箱地址。
+# 显式邮箱字段：去掉邮箱字段标签（E-mail:/Email:/メール:）和邮箱地址后，
+# 整行只剩符号/标点才算干净的邮箱字段行。
 RE_EMAIL_FIELD_LABEL = re.compile(
     r"\b(?:e-?mail|mail|メール(?:アドレス)?)\s*[:：]\s*", re.I)
-RE_EMAIL_FIELD_LINE = re.compile(
-    r"^[\s(（\[【>*†‡§¶✉\-–—]*(?:e-?mail|mail|メール(?:アドレス)?)\s*[:：]", re.I)
 RE_EMAIL_LINE_RESIDUE = re.compile(
     r"^[\s*†‡§¶✉()（）\[\]【】<>、。，,.．;；:：!！?？\-–—=~|]*$")
 
@@ -208,25 +207,25 @@ def _single_proven_pair(text, channel, confidence="high"):
 
 
 def _is_email_field_line(line):
-    """该行本身是否为显式邮箱字段：带标签的 E-mail:/Email:/メール: 行，
-    或整行只含邮箱地址（允许少量符号/标点）。仅“散文中带邮箱”的行
-    （编辑部说明、资助信息等）不算邮箱字段。"""
+    """该行本身是否为显式邮箱字段：去掉邮箱字段标签和邮箱地址后只剩
+    符号/标点。带散文注记的行（如 "E-mail: office@example.org (Editorial
+    Office)" 或 "Email: support@example.org for submission questions"）
+    不是干净的邮箱字段，不得吸进有界通讯块。"""
     line = (line or "").strip()
     if not line:
         return False
-    if RE_EMAIL_FIELD_LINE.match(line):
-        return True
-    if not RE_EMAIL.search(line):
-        return False
-    return bool(RE_EMAIL_LINE_RESIDUE.match(RE_EMAIL.sub(" ", line)))
+    residue = RE_EMAIL.sub(" ", RE_EMAIL_FIELD_LABEL.sub(" ", line))
+    return bool(RE_EMAIL_LINE_RESIDUE.match(residue))
 
 
 def _pdf_bounded_block_proven_pair(text, marker):
     """Only pair evidence inside the marker's bounded correspondence block.
 
     The block is the marker's own line plus immediately following lines that are
-    themselves explicit email fields (a labeled `E-mail:` line or a bare
-    email-only line). The first line that is not an email field — a blank line,
+    themselves explicit email fields: lines holding nothing beyond email-field
+    labels (`E-mail:`/`Email:`/`メール:`), the address(es) itself, and allowed
+    punctuation. Annotated or prose email lines (editorial/support notes) do
+    not qualify. The first line that is not an email field — a blank line,
     affiliation, editorial/funding prose — ends the block, so an email in a
     later unrelated block is never absorbed. Within the block the counts must
     still be exactly one name and one email; anything else stays unpaired.
