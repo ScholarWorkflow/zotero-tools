@@ -33,6 +33,10 @@ CONVENTION_MARKERS = (
     # single business source of truth
     "ONLY from the canonical `zotero-collection-cleaner` skill",
     # native Zotero MCP route, no shim
+    "Codex hard rule — Zotero route",
+    "your first and only Zotero access path is the session's native Zotero MCP tools",
+    "a failed curl probe must NOT be reported as Zotero being unreachable",
+    "Absence of MCP *resources* is irrelevant: check for MCP *tools*",
     "native Zotero MCP server configured for the session/consumer",
     "Do not implement or expect a `skill_mcp()` shim",
     "never use bash curl to probe or reach Zotero",
