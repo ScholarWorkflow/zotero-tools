@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"44444444-4444-4444-8444-444444444444"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"This session was recorded with model synth-a but is resuming with synth-b."}}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Received selection: program-root-A. Will clean only that synthetic root."}}
+{"type":"turn.completed"}

@@ -1,0 +1,1 @@
+error: HTTP 402 Payment Required from provider

@@ -1,0 +1,1 @@
+Model metadata for openrouter/free not found; using fallback metadata
