@@ -34,3 +34,31 @@ def test_agent_descriptions_quote_yaml_colon_space_scalars() -> None:
                 and value[0] in {"'", '"'}
                 and value[-1] == value[0]
             ), f"{agent}: description containing ': ' must be quoted for valid YAML"
+
+
+def test_agent_frontmatter_fields_are_well_formed() -> None:
+    agents = sorted(AGENTS_DIR.glob("*.agent.md"))
+    assert agents, "expected at least one APM agent"
+
+    for agent in agents:
+        lines = _frontmatter_lines(agent)
+
+        name_lines = [line for line in lines if line.startswith("name:")]
+        assert len(name_lines) == 1, f"{agent}: expected exactly one name field"
+        assert name_lines[0].split(":", 1)[1].strip(), f"{agent}: name must be non-empty"
+
+        mode_lines = [line for line in lines if line.startswith("mode:")]
+        assert len(mode_lines) == 1, f"{agent}: expected exactly one mode field"
+        assert mode_lines[0].split(":", 1)[1].strip() in {"subagent", "primary", "all"}, (
+            f"{agent}: unknown mode value"
+        )
+
+        permission_values = [
+            line.split(":", 1)[1].strip()
+            for line in lines
+            if line.startswith("  ") and ":" in line
+        ]
+        for value in permission_values:
+            assert value in {"allow", "ask", "deny"}, (
+                f"{agent}: unexpected permission value {value!r}"
+            )
