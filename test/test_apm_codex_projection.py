@@ -49,6 +49,12 @@ CONVENTION_MARKERS = (
     "do NOT pick any default or recommended option silently",
     "MUST resume the SAME child thread/session",
     "Spawning a fresh child is NOT a resume",
+    # interaction cardinality: per-category selection semantics must survive projection
+    "Selection cardinality per category",
+    "`root_selection` → `multiple: true`",
+    "`canonical_tie_break` → `multiple: false`",
+    "`plan_confirmation` → `multiple: false`",
+    '"multiple": "<true for root_selection; false for canonical_tie_break and plan_confirmation',
     # transient control message, no business schema change
     '"control": "needs_input"',
     '"category": "root_selection|canonical_tie_break|plan_confirmation"',
