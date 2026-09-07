@@ -25,11 +25,11 @@
 #     --evidence-regex '<ERE>' [--evidence-regex '<ERE>' ...] \
 #     [--absent-regex '<ERE>' ...] [--scan-dir <dir with *.jsonl> ...] \
 #     [--expect-thread <thread-id>] [--resume-thread <thread-id>] \
-#     [--deadline-seconds <300>] [--codex-arg '<arg>' ...]
+#     [--deadline-seconds <300>] [--codex-arg '<arg>' ...] [--profile <name>]
 set -uo pipefail
 
 PROBE_NAME="" PROMPT_FILE="" LOG_DIR="" REPO_ROOT="" CONSUMER_DIR="" CODEX_HOME=""
-EXPECT_THREAD="" RESUME_THREAD="" DEADLINE=300
+EXPECT_THREAD="" RESUME_THREAD="" DEADLINE=300 PROFILE="openrouter"
 EVIDENCE=() ABSENT=() SCAN_DIRS=() CODEX_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -47,6 +47,7 @@ while [[ $# -gt 0 ]]; do
     --resume-thread) RESUME_THREAD=$2; shift 2 ;;
     --deadline-seconds) DEADLINE=$2; shift 2 ;;
     --codex-arg) CODEX_ARGS+=("$2"); shift 2 ;;
+    --profile) PROFILE=$2; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -130,7 +131,7 @@ if [[ ${#RESUME_ARGS[@]} -gt 0 ]]; then RESUME_ARGS_Q=$(printf '%q ' "${RESUME_A
 START=$(date +%s)
 direnv exec "$REPO_ROOT" bash -lc "\
 cd '$CONSUMER_DIR' && export CODEX_HOME='$CODEX_HOME' && \
-codex exec -p openrouter --skip-git-repo-check \
+codex exec -p "$PROFILE" --skip-git-repo-check \
 --dangerously-bypass-approvals-and-sandbox --disable guardian_approval \
 $CODEX_ARGS_Q \
 --json -o '$LAST_LOG' $RESUME_ARGS_Q \

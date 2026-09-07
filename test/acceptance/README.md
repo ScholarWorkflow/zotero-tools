@@ -28,8 +28,14 @@ isolated disposable Zotero MCP endpoint. Codex is invoked through the project
 consensus wrapper:
 
 ```
-direnv exec <dir-under-the-direnv-tree> codex exec -p openrouter ...
+direnv exec <dir-under-the-direnv-tree> codex exec -p <profile> ...
 ```
+
+The profile name is the maintainer-approved provider/model policy for the run
+(passed to the harness via `--profile`; it defaults to `openrouter`). The
+profile layer carries provider/model configuration; the credential it
+references stays in the local runtime config and is never copied into this
+repository, fixtures, logs, or command arguments.
 
 Credentials are injected by direnv only; no key is ever placed in command
 arguments, fixtures, logs, or this repository. Provider/model config flags
