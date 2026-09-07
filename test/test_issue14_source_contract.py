@@ -128,7 +128,7 @@ def test_canonical_cleanup_business_invariants_are_frozen() -> None:
         "_zotero_cleanup_actions.jsonl",
         "逐个串行",
         "幂等契约",
-        "不写 `_zotero_collections.json`",
+        "**不写** `_zotero_collections.json`",
     )
     for marker in required_markers:
         assert marker in skill, f"missing protected cleanup invariant: {marker}"
