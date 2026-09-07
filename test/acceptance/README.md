@@ -91,7 +91,12 @@ duplicate/scope re-evaluation.
 1. PASS is based only on the probe's minimal evidence, asserted by the
    controller from logs/transcripts (`--evidence-regex` over the streamed
    transcript, codex stderr, and rollout dirs), never on model self-report and
-   never on receiving a final cleaner business JSON.
+   never on receiving a final cleaner business JSON. Rollout transcripts embed
+   instructions, prompts and tool schemas as single-line JSON: any scan-dir
+   pattern aimed at behavior must anchor to the payload event structure (e.g.
+   `"payload":{"type":"function_call"`), otherwise it matches instruction text
+   and the probe degenerates into a vacuous pass. The streamed exec transcript
+   carries no instruction echo, so it is the preferred evidence surface.
 2. Evidence-complete ⇒ codex is terminated immediately. The parent model never
    decides how long to keep polling.
 3. Every probe runs under a wall-clock deadline (`--deadline-seconds`, default

@@ -67,6 +67,10 @@ VERDICT_JSON="$LOG_DIR/$PROBE_NAME.verdict.json"
 PROMPT_COPY="$LOG_DIR/$PROBE_NAME.prompt.txt"
 cp "$PROMPT_FILE" "$PROMPT_COPY"
 : >"$STREAM_LOG"; : >"$STDERR_LOG"
+# Rollout scan marker: only files created after this moment count as evidence,
+# so transcripts left by earlier probes can never satisfy this run's gates.
+START_MARKER="$LOG_DIR/$PROBE_NAME.start-marker"
+touch "$START_MARKER"
 
 PID=""
 terminate() {
@@ -79,17 +83,39 @@ terminate() {
 }
 trap terminate EXIT
 
+# Child-thread scoping: rollout transcripts embed prompts, instructions and
+# tool schemas, so scan-dir evidence is only meaningful inside the spawned
+# child's OWN rollout file. The controller derives the child thread id from the
+# stream's spawn events (never from model claims) and restricts scan-dir
+# matching to files whose name carries that id.
+CHILD_IDS=""
+update_child_ids() {
+  local ids
+  ids=$(grep -oE '"receiver_thread_ids":\["[0-9a-f-]+' "$STREAM_LOG" 2>/dev/null |
+    grep -oE '[0-9a-f-]{16,}' | sort -u | tr '\n' ' ')
+  CHILD_IDS="$CHILD_IDS $ids"
+}
+
 # All evidence assertions run against the controller-owned logs, never against
 # model self-reports: the streamed exec transcript, codex stderr, and (when
-# provided) the per-thread rollout transcripts under --scan-dir.
+# provided) the per-thread rollout transcripts under --scan-dir. Scan-dir files
+# are filtered to those created after this probe started, so transcripts left
+# by earlier probes can never satisfy this run's gates.
 matched_somewhere() {
   local re=$1
   grep -qE "$re" "$STREAM_LOG" 2>/dev/null && return 0
   grep -qE "$re" "$STDERR_LOG" 2>/dev/null && return 0
-  local dir
+  local dir f id skip
   for dir in ${SCAN_DIRS[@]+"${SCAN_DIRS[@]}"}; do
     [[ -d "$dir" ]] || continue
-    grep -rqE --include='*.jsonl' "$re" "$dir" 2>/dev/null && return 0
+    while IFS= read -r -d '' f; do
+      skip=1
+      for id in $CHILD_IDS; do
+        case "$f" in *"$id"*) skip=0; break ;; esac
+      done
+      [[ "$skip" == 1 ]] && continue
+      grep -qE "$re" "$f" 2>/dev/null && return 0
+    done < <(find "$dir" -name '*.jsonl' -newer "$START_MARKER" -type f -print0 2>/dev/null)
   done
   return 1
 }
@@ -113,11 +139,18 @@ PID=$!
 
 # Availability failures observed on this harness (rule 4). Tight patterns on
 # purpose: the benign "Model metadata ... not found" fallback must not match.
+# Note: keep regexes portable — BSD grep caps {n,m} repetition at 255; prefer
+# `.*` (line-oriented, never crosses lines) over bounded repetition. Rollout
+# transcripts embed instructions, prompts and tool schemas as single-line JSON,
+# so behavioral evidence against --scan-dir MUST anchor to the payload event
+# structure (e.g. `"payload":{"type":"function_call"`), never to bare words
+# that also occur in instruction/config text.
 AVAILABILITY_RE='HTTP 40[23]|Payment Required|not available in your region|insufficient_quota|quota exceeded'
 
 VERDICT=""
 while :; do
   NOW=$(date +%s)
+  update_child_ids
   if (( NOW - START >= DEADLINE )); then VERDICT="HARNESS_DEADLINE"; terminate; break; fi
   if matched_somewhere "$AVAILABILITY_RE"; then
     VERDICT="HARNESS_MODEL_AVAILABILITY"; terminate; break
