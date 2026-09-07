@@ -141,14 +141,15 @@ PID=$!
 # purpose: the benign "Model metadata ... not found" fallback must not match,
 # and a bare HTTP 404 must not match either — the 404 arm additionally requires
 # the "unavailable" model-withdrawal wording (e.g. OpenRouter free-tier
-# deprecation copy).
+# deprecation copy). Rate-limit exhaustion (quota-type, rule 4) is matched on
+# the provider's verbatim "Rate limit exceeded" wording.
 # Note: keep regexes portable — BSD grep caps {n,m} repetition at 255; prefer
 # `.*` (line-oriented, never crosses lines) over bounded repetition. Rollout
 # transcripts embed instructions, prompts and tool schemas as single-line JSON,
 # so behavioral evidence against --scan-dir MUST anchor to the payload event
 # structure (e.g. `"payload":{"type":"function_call"`), never to bare words
 # that also occur in instruction/config text.
-AVAILABILITY_RE='HTTP 40[23]|HTTP 404.*unavailable|Payment Required|not available in your region|insufficient_quota|quota exceeded'
+AVAILABILITY_RE='HTTP 40[23]|HTTP 404.*unavailable|Rate limit exceeded|Payment Required|not available in your region|insufficient_quota|quota exceeded'
 
 VERDICT=""
 while :; do

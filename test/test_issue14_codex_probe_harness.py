@@ -62,3 +62,25 @@ def test_model_unavailable_404_is_classified_as_harness_availability() -> None:
         pattern,
         "Model metadata for openrouter/free not found; using fallback metadata",
     ), "benign model-metadata fallback must not be classified as availability failure"
+
+
+def test_rate_limit_exceeded_is_classified_as_harness_availability() -> None:
+    """Free-tier daily rate-limit exhaustion is provider availability, not repo failure.
+
+    The final-SHA acceptance run actually observed this OpenRouter failure shape:
+    a 429 "Rate limit exceeded: free-models-per-day-high-balance" surfaced as a
+    top-level stream error and must classify as HARNESS_MODEL_AVAILABILITY
+    instead of FAIL_NO_EVIDENCE.
+    """
+
+    pattern = _availability_regex()
+
+    assert _matches_ere(
+        pattern,
+        "Rate limit exceeded: free-models-per-day-high-balance",
+    ), "free-tier rate-limit exhaustion must classify as HARNESS_MODEL_AVAILABILITY"
+
+    assert not _matches_ere(
+        pattern,
+        "Model metadata for openrouter/free not found; using fallback metadata",
+    ), "benign model-metadata fallback must not be classified as availability failure"
