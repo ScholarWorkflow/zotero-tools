@@ -35,6 +35,8 @@ CONVENTION_MARKERS = (
     # native Zotero MCP route, no shim
     "native Zotero MCP server configured for the session/consumer",
     "Do not implement or expect a `skill_mcp()` shim",
+    "never use bash curl to probe or reach Zotero",
+    "the reachability signal is whether the session's native Zotero MCP tools respond",
     # interaction bridge: no implicit defaults, transient needs_input, same-child resume
     "Only when `question` is NOT available (Codex)",
     "(a) root selection when no `program_roots` is given",
