@@ -116,3 +116,24 @@ Return `{ "result": "error", "roots": [], "notes": "<reason>" }` when: Zotero MC
 - **fail-stop**: no skip-and-continue. One failed action stops the whole root (already-executed actions stay; mapping not written; rerun resumes idempotently).
 - **All deletes are serial**, never parallel; canonical tie-breaks happen at PLAN stage, never mid-execution.
 - Write ONLY into `<root>/教授研究/` (`_zotero_cleanup_plan.json`, `_zotero_cleanup_report.md`, `_zotero_cleanup_actions.jsonl`, `_zotero_collections.json`). Never modify other program artifacts.
+
+## Runtime compatibility (Codex)
+
+This agent is a specialized internal child invoked by a parent workflow. "Subagent"/"internal" is an **orchestration convention, not a security boundary**: no runtime (including Codex) provides OpenCode-style per-agent permission enforcement for this agent, and this agent must never claim otherwise. The cleanup algorithm still comes ONLY from the canonical `zotero-collection-cleaner` skill.
+
+- **Zotero MCP (native route)**: Zotero access always goes through the native Zotero MCP server configured for the session/consumer — on Codex this means the session's inherited MCP configuration, with no per-agent ACL. Do not implement or expect a `skill_mcp()` shim (that helper exists only in OpenCode), and do not wrap the MCP in extra production tooling.
+- **Interaction bridge**: if the native `question` tool is available (OpenCode), use it exactly as specified above and change nothing. Only when `question` is NOT available (Codex), then for each of the three real interactions — (a) root selection when no `program_roots` is given, (b) canonical tie-break when the priority chain still ties, (c) plan confirmation (`执行` / `放弃` / `放弃，仅看报告`) — do NOT pick any default or recommended option silently. Instead STOP and return the transient `needs_input` control message below; the parent asks the user and MUST resume the SAME child thread/session with the answer. Spawning a fresh child is NOT a resume — the resumed child keeps its snapshot/plan state and continues.
+- This control message is transient parent↔child orchestration state: NOT a persisted business artifact, and it changes neither the plan/report/mapping/action-log schemas nor the final business result JSON.
+
+```json
+{
+  "control": "needs_input",
+  "interaction": {
+    "category": "root_selection|canonical_tie_break|plan_confirmation",
+    "question": "<the question that would have been asked natively>",
+    "options": [{ "label": "<label>", "description": "<description>" }],
+    "multiple": false,
+    "resume_token": "<this child's thread/session id>"
+  }
+}
+```
