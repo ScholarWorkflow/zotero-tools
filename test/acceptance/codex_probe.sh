@@ -121,7 +121,7 @@ matched_somewhere() {
 }
 
 RESUME_ARGS=()
-if [[ -n "$RESUME_THREAD" ]]; then RESUME_ARGS=(exec resume "$RESUME_THREAD"); fi
+if [[ -n "$RESUME_THREAD" ]]; then RESUME_ARGS=(resume "$RESUME_THREAD"); fi
 CODEX_ARGS_Q=""
 if [[ ${#CODEX_ARGS[@]} -gt 0 ]]; then CODEX_ARGS_Q=$(printf '%q ' "${CODEX_ARGS[@]}"); fi
 RESUME_ARGS_Q=""
