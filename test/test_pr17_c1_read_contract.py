@@ -148,3 +148,15 @@ def test_c1_path_in_shell_comment_after_cat_is_not_a_skill_read(tmp_path: Path) 
         "SKILL.md path appears only in a shell comment; "
         f"controller stderr: {result.stderr}"
     )
+
+
+def test_c1_path_in_later_newline_command_is_not_a_skill_read(tmp_path: Path) -> None:
+    result = _run_c1_command_case(
+        tmp_path,
+        "cat /dev/null\nprintf '%s\\n' zotero-collection-cleaner/SKILL.md >/dev/null",
+    )
+    assert result.returncode == 1, (
+        "C1 must stay NO_MATCH when cat reads a different file and the canonical "
+        "SKILL.md path appears only in a later newline-separated command; "
+        f"controller stderr: {result.stderr}"
+    )
