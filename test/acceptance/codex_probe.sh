@@ -174,6 +174,9 @@ if (( SERVICE_RC != 0 )); then
   finish HARNESS_SERVICE_FAILURE
 fi
 HTTP_CODE=$(tr -d '[:space:]' <"$HTTP_STATUS")
+if [[ "$HTTP_CODE" == "504" ]]; then
+  finish HARNESS_DEADLINE
+fi
 if [[ ! "$HTTP_CODE" =~ ^2[0-9][0-9]$ ]]; then
   if grep -qE "$AVAILABILITY_RE" "$RESPONSE_JSON" 2>/dev/null; then
     finish HARNESS_MODEL_AVAILABILITY

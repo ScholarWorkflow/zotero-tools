@@ -245,7 +245,8 @@ workflow, no plan/report regeneration, no duplicate/scope re-evaluation.
    complete response and cannot terminate the service-owned Codex process
    mid-request.
 4. Every service request runs under a wall-clock deadline
-   (`--deadline-seconds`, default 300). Exhaustion ⇒ `HARNESS_DEADLINE`.
+   (`--deadline-seconds`, default 300). Local exhaustion or the eval service's
+   HTTP 504 timeout response ⇒ `HARNESS_DEADLINE`.
 5. Provider/model/approval availability failures (HTTP 402/403, payment/quota,
    region blocks, rate-limit exhaustion, model-withdrawal 404 copy) ⇒
    `HARNESS_MODEL_AVAILABILITY`: stop, report, no `needs_input` routing, no

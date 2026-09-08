@@ -560,6 +560,7 @@ STUB_CURL = """\
 #!/usr/bin/env bash
 # Test stub: simulates the eval service without launching Codex.
 output=""
+http_status="${STUB_HTTP_STATUS:-200}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --output) output=$2; shift 2 ;;
@@ -570,7 +571,7 @@ done
 [[ -n "$STUB_TOUCH" ]] && for f in $STUB_TOUCH; do touch "$f"; done
 if [[ -n "$STUB_RESPONSE" ]]; then
   cp "$STUB_RESPONSE" "$output"
-  printf '200'
+  printf '%s' "$http_status"
   exit "${STUB_EXIT:-0}"
 fi
 [[ -n "$STUB_EXIT" ]] && exit "$STUB_EXIT"
@@ -600,7 +601,9 @@ class ProbeRun:
         touch: str | Path | None = None,
         stream_lines: Path | None = None,
         stderr_msg: str | None = None,
+        error_msg: str | None = None,
         exit_after: str | None = None,
+        http_status: str | None = None,
         extra: tuple[str, ...] = (),
         strip_jq: bool = False,
     ) -> tuple[int, dict | None]:
@@ -630,26 +633,26 @@ class ProbeRun:
                 ]
             except json.JSONDecodeError:
                 malformed_response = True
-        if stream_lines or stderr_msg is not None or exit_after is not None:
+        if stream_lines or stderr_msg is not None or error_msg is not None or exit_after is not None:
             if malformed_response:
                 response_path.write_text(
                     stream_lines.read_text(encoding="utf-8"), encoding="utf-8"
                 )
             else:
-                response_path.write_text(
-                    json.dumps(
-                        {
-                            "passed": True,
-                            "output": {
-                                "events": events,
-                                "exit_code": 0,
-                                "stderr": stderr_msg or "",
-                            },
-                        }
-                    ),
-                    encoding="utf-8",
-                )
+                response = {
+                    "passed": error_msg is None,
+                    "output": {
+                        "events": events,
+                        "exit_code": 0 if error_msg is None else None,
+                        "stderr": stderr_msg or "",
+                    },
+                }
+                if error_msg is not None:
+                    response["error"] = error_msg
+                response_path.write_text(json.dumps(response), encoding="utf-8")
             env["STUB_RESPONSE"] = str(response_path)
+        if http_status is not None:
+            env["STUB_HTTP_STATUS"] = http_status
         if exit_after is not None:
             env["STUB_EXIT"] = exit_after
         result = subprocess.run(
@@ -718,6 +721,19 @@ def test_probe_fail_no_evidence_on_clean_exit(tmp_path: Path) -> None:
     rc, verdict = run.run("n1", "c1", exit_after="0")
     assert rc == 1
     assert verdict is not None and verdict["verdict"] == "FAIL_NO_EVIDENCE"
+
+
+def test_probe_maps_eval_timeout_to_harness_deadline(tmp_path: Path) -> None:
+    run = ProbeRun(tmp_path)
+    rc, verdict = run.run(
+        "timeout",
+        "c1",
+        deadline=3,
+        error_msg="codex exec 超过 3 秒，已停止",
+        http_status="504",
+    )
+    assert rc == 1
+    assert verdict is not None and verdict["verdict"] == "HARNESS_DEADLINE"
 
 
 def test_probe_fail_malformed_evidence(tmp_path: Path) -> None:
