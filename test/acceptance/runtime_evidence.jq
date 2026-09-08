@@ -123,7 +123,7 @@ def c1_read:
            | ($args | type == "object")
            and (($args.cmd? // "") | type == "string")
            and (($args.cmd? // "")
-                | test("(^|[;&|]{1,2})[[:space:]]*cat[[:space:]]+[^;&|]*" + skill_token)))
+                | test("(^|[;&|]{1,2})[[:space:]]*cat[[:space:]]+[^#;&|<>]*" + skill_token)))
       and has_correlated_output($it; .call_id? // "";
             any(output_texts(.output)[]; contains(exec_success_marker))));
 
