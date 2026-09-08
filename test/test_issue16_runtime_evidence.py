@@ -588,6 +588,7 @@ class ProbeRun:
         stub.chmod(0o755)
         for d in ("logs", "sessions", "responses"):
             (tmp_path / d).mkdir()
+        (tmp_path / "consumer").mkdir()
         (tmp_path / "prompt.txt").write_text("probe prompt\n", encoding="utf-8")
 
     def run(
@@ -661,6 +662,8 @@ class ProbeRun:
                 str(self.tmp / "prompt.txt"),
                 "--log-dir",
                 str(self.tmp / "logs"),
+                "--consumer-dir",
+                str(self.tmp / "consumer"),
                 "--evidence-contract",
                 contract,
                 "--deadline-seconds",
@@ -703,7 +706,10 @@ def test_probe_parses_service_response_and_passes_on_structured_evidence(tmp_pat
     assert rc == 0, verdict
     assert verdict is not None and verdict["verdict"] == "PASS_EVIDENCE"
     request = json.loads((tmp_path / "logs" / "c2.request.json").read_text(encoding="utf-8"))
-    assert request["command"] == "probe prompt\n"
+    assert request["command"] == (
+        "--json --skip-git-repo-check --sandbox workspace-write "
+        f"--cd '{tmp_path / 'consumer'}' -- 'probe prompt\n'"
+    )
     assert request["timeout"] == 60
 
 

@@ -21,11 +21,13 @@
 #      => FAIL_MALFORMED_EVIDENCE (never falls back to text scanning).
 #
 # The Codex process is owned by the project eval service. This harness sends
-# only prompt text in the JSON `command` field; it never starts `codex`, copies
-# provider credentials, or selects a provider/model on the command line.
+# the complete Codex CLI parameter text in the JSON `command` field; it
+# never starts `codex`, copies provider credentials, or selects a
+# provider/model on the command line.
 #
 # Usage:
 #   codex_probe.sh --name c1 --prompt-file p.txt --log-dir logs/ \
+#     --consumer-dir <clean consumer> \
 #     --evidence-contract <c1|c2|c3-leg1|c3-leg2> \
 #     [--sentinel <isolated fixture text>] [--scan-dir <dir with *.jsonl> ...] \
 #     [--expect-thread <thread-id>] [--deadline-seconds <300>] \
@@ -35,7 +37,7 @@ set -uo pipefail
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 EVIDENCE_CTL="$DIR/runtime_evidence.sh"
 
-PROBE_NAME="" PROMPT_FILE="" LOG_DIR=""
+PROBE_NAME="" PROMPT_FILE="" LOG_DIR="" CONSUMER_DIR=""
 EXPECT_THREAD="" DEADLINE=300 SERVICE_URL="${CODEX_EVAL_URL:-http://127.0.0.1:8765/eval}"
 CONTRACT="" SENTINEL="" SCAN_DIRS=()
 
@@ -44,6 +46,7 @@ while [[ $# -gt 0 ]]; do
     --name) PROBE_NAME=$2; shift 2 ;;
     --prompt-file) PROMPT_FILE=$2; shift 2 ;;
     --log-dir) LOG_DIR=$2; shift 2 ;;
+    --consumer-dir) CONSUMER_DIR=$2; shift 2 ;;
     --evidence-contract) CONTRACT=$2; shift 2 ;;
     --sentinel) SENTINEL=$2; shift 2 ;;
     --scan-dir) SCAN_DIRS+=("$2"); shift 2 ;;
@@ -54,7 +57,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-for required in PROBE_NAME PROMPT_FILE LOG_DIR CONTRACT; do
+for required in PROBE_NAME PROMPT_FILE LOG_DIR CONSUMER_DIR CONTRACT; do
   if [[ -z "${!required}" ]]; then echo "--${required//-/_} is required" >&2; exit 2; fi
 done
 case "$CONTRACT" in c1|c2|c3-leg1|c3-leg2) ;; *)
@@ -117,13 +120,22 @@ terminate() {
 trap terminate EXIT
 
 # The eval API owns Codex lifecycle, provider/model selection and credentials.
-# This harness sends only prompt text in the JSON `command` field and retains
-# both the complete service response and its normalized event stream.
+# Build the complete parameter text here so the service executes in the fresh
+# consumer, while retaining both the complete service response and its
+# normalized event stream. jq's @sh quoting keeps paths/prompts data-only even
+# though the service receives one command string.
 REQUEST_JSON="$LOG_DIR/$PROBE_NAME.request.json"
 RESPONSE_JSON="$LOG_DIR/$PROBE_NAME.eval.json"
 HTTP_STATUS="$LOG_DIR/$PROBE_NAME.http-status.txt"
 TRANSPORT_LOG="$LOG_DIR/$PROBE_NAME.transport.log"
-jq -n --rawfile command "$PROMPT_COPY" --argjson timeout "$DEADLINE" \
+COMMAND_FILE="$LOG_DIR/$PROBE_NAME.command.txt"
+CODEX_CD=$(jq -nr --arg value "$CONSUMER_DIR" '$value | @sh') || finish HARNESS_PREREQUISITE
+CODEX_PROMPT=$(jq -Rrs '@sh' "$PROMPT_COPY") || finish HARNESS_PREREQUISITE
+printf '%s --cd %s -- %s' \
+  '--json --skip-git-repo-check --sandbox workspace-write' \
+  "$CODEX_CD" "$CODEX_PROMPT" >"$COMMAND_FILE" \
+  || finish HARNESS_PREREQUISITE
+jq -n --rawfile command "$COMMAND_FILE" --argjson timeout "$DEADLINE" \
   '{command: $command, timeout: $timeout}' >"$REQUEST_JSON" \
   || finish HARNESS_PREREQUISITE
 

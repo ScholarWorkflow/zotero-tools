@@ -54,17 +54,20 @@ to grep/Python ad-hoc parsing.
 Each probe has exactly one compatibility question and a deterministic PASS
 condition. All consumers are installed fresh from the **remote** final head
 SHA (never local/editable state), with an isolated disposable Zotero MCP
-endpoint. Codex is invoked by the project consensus eval service:
+endpoint. Codex is invoked by the project consensus eval service. The harness
+sends the complete `codex exec` parameter text, including the prepared
+consumer's workspace root:
 
 ```
 POST http://127.0.0.1:8765/eval
-{"command":"<prompt text>","timeout":300}
+{"command":"--json --skip-git-repo-check --sandbox workspace-write --cd <consumer> -- <prompt>","timeout":300}
 ```
 
 The service owns Codex lifecycle, provider/model selection and credentials. Its
 default policy is `openrouter` for cost control, but that policy is not an
 acceptance condition. The harness does not pass `-p`, provider/model flags or
-credentials.
+credentials. Invoke a probe with `--consumer-dir <clean consumer>`; this is
+rendered as Codex's documented `--cd <consumer>` argument inside `command`.
 
 The complete service response is retained as `<name>.eval.json`; its
 `output.events` array is normalized to `<name>.stream.jsonl` for the shared

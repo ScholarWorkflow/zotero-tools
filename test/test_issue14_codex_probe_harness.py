@@ -41,6 +41,9 @@ def test_probe_delegates_codex_execution_to_eval_service() -> None:
     assert "http://127.0.0.1:8765/eval" in text
     assert "--data-binary" in text
     assert "--rawfile command" in text
+    assert "--consumer-dir" in text
+    assert "--cd" in text
+    assert "--sandbox workspace-write" in text
     assert "codex exec" not in text
     assert "direnv exec" not in text
 
