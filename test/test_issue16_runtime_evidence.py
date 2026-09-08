@@ -12,6 +12,7 @@ Tri-state controller contract: exit 0 = MATCH, 1 = NO_MATCH, 2 = MALFORMED.
 from __future__ import annotations
 
 import os
+import json
 import re
 import shutil
 import subprocess
@@ -153,12 +154,13 @@ def test_probe_source_has_no_regex_evidence_surface() -> None:
     assert 'AVAILABILITY_RE=' in text
 
 
-def test_legacy_issue14_harness_anchors_survive() -> None:
-    """The issue #14 gates keep their anchors: resume vector + availability RE."""
+def test_eval_service_harness_surface_and_availability_classifier() -> None:
+    """The harness uses the consensus eval endpoint and keeps diagnostics."""
     text = PROBE.read_text(encoding="utf-8")
 
-    assert 'RESUME_ARGS=(resume "$RESUME_THREAD")' in text
-    assert 'RESUME_ARGS=(exec resume "$RESUME_THREAD")' not in text
+    assert 'SERVICE_URL="${CODEX_EVAL_URL:-http://127.0.0.1:8765/eval}"' in text
+    assert "--data-binary" in text
+    assert "codex exec" not in text
 
     pattern = availability_regex()
     assert matches_ere(pattern, "HTTP 402 Payment Required")
@@ -552,15 +554,25 @@ def test_availability_classification_kept(tmp_path: Path, fixture_name: str, exp
     assert matches_ere(availability_regex(), message) is expected
 
 
-# --- live-harness behaviour (stubbed runtime, real probe + controller) --------
+# --- live-harness behaviour (stubbed eval service, real probe + controller) --
 
-STUB_DIRENV = """\
+STUB_CURL = """\
 #!/usr/bin/env bash
-# Test stub: simulates the codex runtime without launching a model.
-sleep 1
+# Test stub: simulates the eval service without launching Codex.
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output) output=$2; shift 2 ;;
+    --write-out) shift 2 ;;
+    *) shift ;;
+  esac
+done
 [[ -n "$STUB_TOUCH" ]] && for f in $STUB_TOUCH; do touch "$f"; done
-[[ -n "$STUB_STREAM" && -n "$STUB_LINES" ]] && cat "$STUB_LINES" >> "$STUB_STREAM"
-[[ -n "$STUB_STDERR" && -n "$STUB_MSG" ]] && printf '%s\\n' "$STUB_MSG" >> "$STUB_STDERR"
+if [[ -n "$STUB_RESPONSE" ]]; then
+  cp "$STUB_RESPONSE" "$output"
+  printf '200'
+  exit "${STUB_EXIT:-0}"
+fi
 [[ -n "$STUB_EXIT" ]] && exit "$STUB_EXIT"
 sleep 30
 """
@@ -571,10 +583,10 @@ class ProbeRun:
         self.tmp = tmp_path
         self.bin = tmp_path / "bin"
         self.bin.mkdir()
-        stub = self.bin / "direnv"
-        stub.write_text(STUB_DIRENV, encoding="utf-8")
+        stub = self.bin / "curl"
+        stub.write_text(STUB_CURL, encoding="utf-8")
         stub.chmod(0o755)
-        for d in ("logs", "sessions", "repo", "consumer", "codexhome"):
+        for d in ("logs", "sessions", "responses"):
             (tmp_path / d).mkdir()
         (tmp_path / "prompt.txt").write_text("probe prompt\n", encoding="utf-8")
 
@@ -595,7 +607,7 @@ class ProbeRun:
         if strip_jq:
             nojq = self.tmp / "bin-nojq"
             nojq.mkdir(exist_ok=True)
-            for tool in ("bash", "dirname", "mkdir", "cp", "touch", "date", "tee", "grep", "direnv"):
+            for tool in ("bash", "dirname", "mkdir", "cp", "touch", "date", "tee", "grep", "curl"):
                 resolved = shutil.which(tool)
                 if resolved:
                     link = nojq / tool
@@ -606,12 +618,37 @@ class ProbeRun:
             env["PATH"] = f"{self.bin}{os.pathsep}{os.environ['PATH']}"
         if touch:
             env["STUB_TOUCH"] = str(touch)
+        response_path = self.tmp / "responses" / f"{name}.json"
+        events: list[dict] = []
+        malformed_response = False
         if stream_lines:
-            env["STUB_STREAM"] = str(self.tmp / "logs" / f"{name}.stream.jsonl")
-            env["STUB_LINES"] = str(stream_lines)
-        if stderr_msg:
-            env["STUB_STDERR"] = str(self.tmp / "logs" / f"{name}.stderr.log")
-            env["STUB_MSG"] = stderr_msg
+            try:
+                events = [
+                    json.loads(line)
+                    for line in stream_lines.read_text(encoding="utf-8").splitlines()
+                ]
+            except json.JSONDecodeError:
+                malformed_response = True
+        if stream_lines or stderr_msg is not None or exit_after is not None:
+            if malformed_response:
+                response_path.write_text(
+                    stream_lines.read_text(encoding="utf-8"), encoding="utf-8"
+                )
+            else:
+                response_path.write_text(
+                    json.dumps(
+                        {
+                            "passed": True,
+                            "output": {
+                                "events": events,
+                                "exit_code": 0,
+                                "stderr": stderr_msg or "",
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            env["STUB_RESPONSE"] = str(response_path)
         if exit_after is not None:
             env["STUB_EXIT"] = exit_after
         result = subprocess.run(
@@ -624,16 +661,12 @@ class ProbeRun:
                 str(self.tmp / "prompt.txt"),
                 "--log-dir",
                 str(self.tmp / "logs"),
-                "--repo-root",
-                str(self.tmp / "repo"),
-                "--consumer-dir",
-                str(self.tmp / "consumer"),
-                "--codex-home",
-                str(self.tmp / "codexhome"),
                 "--evidence-contract",
                 contract,
                 "--deadline-seconds",
                 str(deadline),
+                "--service-url",
+                "http://127.0.0.1:8765/eval",
                 *extra,
             ],
             capture_output=True,
@@ -643,8 +676,6 @@ class ProbeRun:
             check=False,
         )
         verdict_path = self.tmp / "logs" / f"{name}.verdict.json"
-        import json
-
         verdict = json.loads(verdict_path.read_text(encoding="utf-8")) if verdict_path.exists() else None
         return result.returncode, verdict
 
@@ -655,9 +686,8 @@ def _probe_c2_setup(tmp: Path) -> None:
     shutil.copy(STREAM_SPAWN, tmp / "lines.jsonl")
 
 
-def test_probe_passes_and_hard_stops_on_structured_evidence(tmp_path: Path) -> None:
-    """Rules 1+2+3 on the real poll loop: the sleeping stub runtime is killed
-    the moment the contract MATCHes, far before its own sleep ends."""
+def test_probe_parses_service_response_and_passes_on_structured_evidence(tmp_path: Path) -> None:
+    """The service response is parsed and the shared controller decides PASS."""
     run = ProbeRun(tmp_path)
     _probe_c2_setup(tmp_path)
     rc, verdict = run.run(
@@ -672,7 +702,9 @@ def test_probe_passes_and_hard_stops_on_structured_evidence(tmp_path: Path) -> N
     )
     assert rc == 0, verdict
     assert verdict is not None and verdict["verdict"] == "PASS_EVIDENCE"
-    assert verdict["elapsed_seconds"] < 25, "hard stop must beat the stub's 30s sleep"
+    request = json.loads((tmp_path / "logs" / "c2.request.json").read_text(encoding="utf-8"))
+    assert request["command"] == "probe prompt\n"
+    assert request["timeout"] == 60
 
 
 def test_probe_fail_no_evidence_on_clean_exit(tmp_path: Path) -> None:

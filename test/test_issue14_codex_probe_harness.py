@@ -28,19 +28,21 @@ def _matches_ere(pattern: str, message: str) -> bool:
     return result.returncode == 0
 
 
-def test_resume_uses_codex_exec_resume_subcommand_without_duplicate_exec() -> None:
-    """`codex exec resume` must not be emitted as `codex exec ... exec resume`.
+def test_probe_delegates_codex_execution_to_eval_service() -> None:
+    """The harness must not start a local Codex CLI process.
 
-    The harness already prefixes every invocation with `codex exec`.  Therefore the
-    resume-specific argument vector must begin with `resume`, not another `exec`.
-    Keeping this as a deterministic source gate prevents C3's SAME-child evidence
-    from being invalidated by a malformed CLI invocation.
+    Project consensus owns Codex lifecycle and provider selection in the local
+    eval service. The checked-in probe is only its JSON request/evidence
+    adapter.
     """
 
     text = HARNESS.read_text(encoding="utf-8")
 
-    assert 'RESUME_ARGS=(resume "$RESUME_THREAD")' in text
-    assert 'RESUME_ARGS=(exec resume "$RESUME_THREAD")' not in text
+    assert "http://127.0.0.1:8765/eval" in text
+    assert "--data-binary" in text
+    assert "--rawfile command" in text
+    assert "codex exec" not in text
+    assert "direnv exec" not in text
 
 
 def test_model_unavailable_404_is_classified_as_harness_availability() -> None:

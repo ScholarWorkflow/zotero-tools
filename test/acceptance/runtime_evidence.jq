@@ -4,7 +4,7 @@
 # events, using the event shapes measured from the real codex-cli 0.153.x
 # runtime during the PR #15 final acceptance run:
 #
-#   stream  (codex exec --json stdout):
+#   stream  (eval response .output.events, normalized to JSONL):
 #     {"type":"thread.started","thread_id":"<uuid>"}
 #     {"type":"item.completed","item":{"type":"collab_tool_call",
 #         "tool":"spawn_agent","receiver_thread_ids":["<child-uuid>"],...}}

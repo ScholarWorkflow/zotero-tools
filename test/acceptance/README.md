@@ -30,7 +30,7 @@ strengthened there — never by making an LLM smoke run the full cleaner skill.
 
 ```
 test/acceptance/
-├── codex_probe.sh            # process lifecycle: launch/deadline/poll/verdict
+├── codex_probe.sh            # eval-service request/deadline/response/verdict
 ├── runtime_evidence.sh       # structured evidence controller (tri-state CLI)
 ├── runtime_evidence.jq       # checked-in named evidence predicates
 ├── fixtures/                 # minimal sanitized measured-shape event fixtures
@@ -39,10 +39,10 @@ test/acceptance/
 └── README.md
 ```
 
-The event shapes frozen in `runtime_evidence.jq` were measured from the real
-codex-cli 0.153.x runtime during the PR #15 final acceptance run. If the
-runtime event schema ever changes, update the measured schema, the fixtures
-and the predicates together — never reintroduce text scanning.
+The event shapes frozen in `runtime_evidence.jq` are the structured events
+returned in the eval service's `output.events` array. If the service/runtime
+event schema ever changes, update the measured schema, the fixtures and the
+predicates together — never reintroduce text scanning.
 
 `jq` is a **test-harness prerequisite**, not a production dependency of the
 `zotero-tools` package. `codex_probe.sh` and `runtime_evidence.sh` refuse to
@@ -51,26 +51,25 @@ to grep/Python ad-hoc parsing.
 
 ## Codex probes
 
-Each probe has exactly one compatibility question, a deterministic PASS
-condition, and a hard stop as soon as the evidence appears. All consumers are
-installed fresh from the **remote** final head SHA (never local/editable
-state), with an isolated `CODEX_HOME` whose `mcp_servers.zotero` points at an
-isolated disposable Zotero MCP endpoint. Codex is invoked through the project
-consensus wrapper:
+Each probe has exactly one compatibility question and a deterministic PASS
+condition. All consumers are installed fresh from the **remote** final head
+SHA (never local/editable state), with an isolated disposable Zotero MCP
+endpoint. Codex is invoked by the project consensus eval service:
 
 ```
-direnv exec <dir-under-the-direnv-tree> codex exec -p <profile> ...
+POST http://127.0.0.1:8765/eval
+{"command":"<prompt text>","timeout":300}
 ```
 
-The profile name is the maintainer-approved provider/model policy for the run
-(passed to the harness via `--profile`; it defaults to `openrouter`). The
-profile layer carries provider/model configuration; the credential it
-references stays in the local runtime config and is never copied into this
-repository, fixtures, logs, or command arguments.
+The service owns Codex lifecycle, provider/model selection and credentials. Its
+default policy is `openrouter` for cost control, but that policy is not an
+acceptance condition. The harness does not pass `-p`, provider/model flags or
+credentials.
 
-Credentials are injected by direnv only; no key is ever placed in command
-arguments, fixtures, logs, or this repository. Provider/model config flags
-(e.g. `-c 'review_model=...'`) are configuration, not credentials.
+The complete service response is retained as `<name>.eval.json`; its
+`output.events` array is normalized to `<name>.stream.jsonl` for the shared
+controller. No key is placed in command arguments, fixtures, logs, or this
+repository.
 
 ### Named evidence contracts
 
@@ -197,18 +196,18 @@ matching.
 
 Structured PASS conditions (in stream order):
 
-1. the resume invocation is `codex exec ... resume X`;
-2. the stream contains exactly one `thread.started` event and its
+1. the service-returned stream contains exactly one `thread.started` event and its
    `thread_id` is strictly equal to the leg-1 child id `X`; any other thread
    id is `FAIL_THREAD_MISMATCH`;
-3. a post-resume structured runtime event (agent message / tool call /
+2. a post-resume structured runtime event (agent message / tool call /
    reasoning / collab event) appears **after** that `thread.started`;
-4. PASS immediately at that point — no fresh snapshot, no plan, no final
+3. PASS after the service response is complete — no fresh snapshot, no plan, no final
    business JSON.
 
 A child-id string inside message text proves nothing. Benign metadata `error`
-items between the two (e.g. the measured model-mismatch warning) are
-tolerated and do not break the ordering.
+items between the two are tolerated and do not break the ordering. The service
+owns the underlying continuation invocation; the probe asserts only the
+returned structured SAME-child evidence.
 
 ### O1 — OpenCode regression smoke
 
@@ -228,7 +227,8 @@ workflow, no plan/report regeneration, no duplicate/scope re-evaluation.
    rollout transcripts under `--scan-dir`. It is never based on model
    self-report and never on receiving a final cleaner business JSON.
 2. The controller distinguishes three internal results, mapped to verdicts by
-   the harness: `MATCH` → `PASS_EVIDENCE`; `NO_MATCH` → keep polling;
+   the harness: `MATCH` → `PASS_EVIDENCE`; `NO_MATCH` after the service
+   response → `FAIL_NO_EVIDENCE`;
    `MALFORMED` → `FAIL_MALFORMED_EVIDENCE`. A newline-terminated record that
    participates in the judgment and fails jq parsing is MALFORMED and never
    falls back to text scanning. A live writer's unfinished trailing record
@@ -238,27 +238,27 @@ workflow, no plan/report regeneration, no duplicate/scope re-evaluation.
    `session_meta.payload.id` before any byte is judged: only probe-scoped
    rollouts are validated, and an unrelated session's rollout — even a
    malformed one — never affects the verdict.
-3. Evidence-complete ⇒ codex is terminated immediately (TERM → bounded wait
-   → KILL). The parent model never decides how long to keep polling.
-4. Every probe runs under a wall-clock deadline (`--deadline-seconds`, default
-   300). Exhaustion ⇒ `HARNESS_DEADLINE`, never "ask the model to keep
-   waiting".
+3. The eval service is synchronous. The harness evaluates evidence after the
+   complete response and cannot terminate the service-owned Codex process
+   mid-request.
+4. Every service request runs under a wall-clock deadline
+   (`--deadline-seconds`, default 300). Exhaustion ⇒ `HARNESS_DEADLINE`.
 5. Provider/model/approval availability failures (HTTP 402/403, payment/quota,
    region blocks, rate-limit exhaustion, model-withdrawal 404 copy) ⇒
    `HARNESS_MODEL_AVAILABILITY`: stop, report, no `needs_input` routing, no
    retries, no provider/model policy change to get a green result. The
-   classifier greps the unstructured provider-text surfaces (codex stderr and
-   provider error events in the stream) — diagnostic classification only,
+   classifier greps the unstructured provider-text surfaces (service transport
+   text and `output.stderr`) — diagnostic classification only,
    never event evidence. The benign `Model metadata ... not found` fallback
    message and a bare `HTTP 404` must not classify as availability failure.
-6. The codex process exiting without the evidence ⇒ `FAIL_NO_EVIDENCE` (an
+6. The service returning without the evidence ⇒ `FAIL_NO_EVIDENCE` (an
    abnormal or ambiguous terminal state is a failure, not a wait state). A
    parser failure is never disguised as `FAIL_NO_EVIDENCE`.
 7. Thread-id expectations (`--expect-thread`) are asserted structurally from
    the stream's `thread.started` events via the controller.
 8. Verdicts (`PASS_EVIDENCE`, `HARNESS_DEADLINE`, `HARNESS_MODEL_AVAILABILITY`,
-   `FAIL_NO_EVIDENCE`, `FAIL_THREAD_MISMATCH`, `FAIL_MALFORMED_EVIDENCE`,
-   `HARNESS_PREREQUISITE`) and elapsed seconds are printed as one JSON line
+   `HARNESS_SERVICE_FAILURE`, `FAIL_NO_EVIDENCE`, `FAIL_THREAD_MISMATCH`,
+   `FAIL_MALFORMED_EVIDENCE`, `HARNESS_PREREQUISITE`) and elapsed seconds are printed as one JSON line
    per probe and must be recorded in the acceptance evidence. A probe that
    starts drifting toward full cleaner execution is a test-design regression:
    shrink the prompt/evidence, do not raise the deadline.
