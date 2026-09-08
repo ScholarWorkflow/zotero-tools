@@ -1,4 +1,4 @@
-"""PR #17 regression gate for C1 canonical-skill-read semantics.
+"""PR #17 regression gates for C1 canonical-skill-read semantics.
 
 A successful tool call that merely mentions the canonical SKILL.md path must
 not count as a skill load/read. C1 should require evidence that the tool action
@@ -29,7 +29,7 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
     )
 
 
-def test_c1_path_mention_inside_successful_tool_call_is_not_a_skill_read(tmp_path: Path) -> None:
+def _run_c1_command_case(tmp_path: Path, command: str) -> subprocess.CompletedProcess:
     stream = tmp_path / "stream.jsonl"
     _write_jsonl(
         stream,
@@ -89,12 +89,7 @@ def test_c1_path_mention_inside_successful_tool_call_is_not_a_skill_read(tmp_pat
                     "type": "function_call",
                     "name": "exec_command",
                     "call_id": "call_noop",
-                    "arguments": json.dumps(
-                        {
-                            "cmd": "printf '%s\\n' zotero-collection-cleaner/SKILL.md >/dev/null"
-                        },
-                        separators=(",", ":"),
-                    ),
+                    "arguments": json.dumps({"cmd": command}, separators=(",", ":")),
                 },
             },
             {
@@ -112,7 +107,7 @@ def test_c1_path_mention_inside_successful_tool_call_is_not_a_skill_read(tmp_pat
     os.utime(parent, (fresh, fresh))
     os.utime(child, (fresh, fresh))
 
-    result = subprocess.run(
+    return subprocess.run(
         [
             BASH,
             str(CONTROLLER),
@@ -131,7 +126,25 @@ def test_c1_path_mention_inside_successful_tool_call_is_not_a_skill_read(tmp_pat
         check=False,
     )
 
+
+def test_c1_path_mention_inside_successful_tool_call_is_not_a_skill_read(tmp_path: Path) -> None:
+    result = _run_c1_command_case(
+        tmp_path,
+        "printf '%s\\n' zotero-collection-cleaner/SKILL.md >/dev/null",
+    )
     assert result.returncode == 1, (
         "C1 must stay NO_MATCH when the tool call only mentions the SKILL.md path "
         f"without reading it; controller stderr: {result.stderr}"
+    )
+
+
+def test_c1_path_in_shell_comment_after_cat_is_not_a_skill_read(tmp_path: Path) -> None:
+    result = _run_c1_command_case(
+        tmp_path,
+        "cat /dev/null # zotero-collection-cleaner/SKILL.md",
+    )
+    assert result.returncode == 1, (
+        "C1 must stay NO_MATCH when cat reads a different file and the canonical "
+        "SKILL.md path appears only in a shell comment; "
+        f"controller stderr: {result.stderr}"
     )
