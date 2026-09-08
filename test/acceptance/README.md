@@ -55,13 +55,22 @@ Each probe has exactly one compatibility question and a deterministic PASS
 condition. All consumers are installed fresh from the **remote** final head
 SHA (never local/editable state), with an isolated disposable Zotero MCP
 endpoint. Codex is invoked by the project consensus eval service. The harness
-sends the complete `codex exec` parameter text, including the prepared
-consumer's workspace root:
+runs the `curl` request through `direnv exec` so the service port comes from
+`EVAL_PORT`, and sends the complete Codex parameter text, including the
+prepared consumer's workspace root:
 
 ```
-POST http://127.0.0.1:8765/eval
-{"command":"--json --skip-git-repo-check --sandbox workspace-write --cd <consumer> -- <prompt>","timeout":300}
+curl -X POST http://127.0.0.1:$EVAL_PORT/eval \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "command": "--json --ephemeral --skip-git-repo-check --sandbox workspace-write --cd /tmp/test-project --model MODEL_NAME -- \"检查当前项目的测试\"",
+    "timeout": 300
+  }'
 ```
+
+The checked-in harness writes the JSON request to a log file and passes that
+file with curl's `-d` option, preserving the same request while keeping prompt
+text out of the shell command line.
 
 The service owns Codex lifecycle, provider/model selection and credentials. Its
 default policy is `openrouter` for cost control, but that policy is not an

@@ -31,14 +31,15 @@
 #     --evidence-contract <c1|c2|c3-leg1|c3-leg2> \
 #     [--sentinel <isolated fixture text>] [--scan-dir <dir with *.jsonl> ...] \
 #     [--expect-thread <thread-id>] [--deadline-seconds <300>] \
-#     [--service-url <http://127.0.0.1:8765/eval>]
+#     [--service-url <http://127.0.0.1:$EVAL_PORT/eval>]
 set -uo pipefail
 
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 EVIDENCE_CTL="$DIR/runtime_evidence.sh"
+ENV_ROOT=$(cd "$DIR/../.." && pwd)
 
 PROBE_NAME="" PROMPT_FILE="" LOG_DIR="" CONSUMER_DIR=""
-EXPECT_THREAD="" DEADLINE=300 SERVICE_URL="${CODEX_EVAL_URL:-http://127.0.0.1:8765/eval}"
+EXPECT_THREAD="" DEADLINE=300 SERVICE_URL="${CODEX_EVAL_URL:-}"
 CONTRACT="" SENTINEL="" SCAN_DIRS=()
 
 while [[ $# -gt 0 ]]; do
@@ -106,6 +107,16 @@ if ! command -v curl >/dev/null 2>&1; then
   echo "HARNESS_PREREQUISITE: curl is required by the eval service client" >&2
   finish HARNESS_PREREQUISITE
 fi
+if ! command -v direnv >/dev/null 2>&1; then
+  echo "HARNESS_PREREQUISITE: direnv is required to load EVAL_PORT" >&2
+  finish HARNESS_PREREQUISITE
+fi
+
+if [[ -z "$SERVICE_URL" ]]; then
+  EVAL_PORT_VALUE=$(direnv exec "$ENV_ROOT" sh -c 'printf "%s" "${EVAL_PORT:?}"') \
+    || finish HARNESS_PREREQUISITE
+  SERVICE_URL="http://127.0.0.1:${EVAL_PORT_VALUE}/eval"
+fi
 
 SERVICE_PID=""
 terminate() {
@@ -132,7 +143,7 @@ COMMAND_FILE="$LOG_DIR/$PROBE_NAME.command.txt"
 CODEX_CD=$(jq -nr --arg value "$CONSUMER_DIR" '$value | @sh') || finish HARNESS_PREREQUISITE
 CODEX_PROMPT=$(jq -Rrs '@sh' "$PROMPT_COPY") || finish HARNESS_PREREQUISITE
 printf '%s --cd %s -- %s' \
-  '--json --skip-git-repo-check --sandbox workspace-write' \
+  '--json --ephemeral --skip-git-repo-check --sandbox workspace-write' \
   "$CODEX_CD" "$CODEX_PROMPT" >"$COMMAND_FILE" \
   || finish HARNESS_PREREQUISITE
 jq -n --rawfile command "$COMMAND_FILE" --argjson timeout "$DEADLINE" \
@@ -144,11 +155,11 @@ jq -n --rawfile command "$COMMAND_FILE" --argjson timeout "$DEADLINE" \
 # benign metadata fallback and a bare HTTP 404 intentionally do not match.
 AVAILABILITY_RE='HTTP 40[23]|HTTP 404.*unavailable|Rate limit exceeded|Payment Required|not available in your region|insufficient_quota|quota exceeded'
 
-curl --silent --show-error --max-time "$((DEADLINE + 20))" \
+direnv exec "$ENV_ROOT" curl --silent --show-error --max-time "$((DEADLINE + 20))" \
   --output "$RESPONSE_JSON" --write-out '%{http_code}' \
   -X POST "$SERVICE_URL" \
   -H 'Content-Type: application/json' \
-  --data-binary "@$REQUEST_JSON" \
+  -d "@$REQUEST_JSON" \
   >"$HTTP_STATUS" 2>"$TRANSPORT_LOG" &
 SERVICE_PID=$!
 

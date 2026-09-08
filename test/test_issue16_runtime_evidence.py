@@ -158,8 +158,10 @@ def test_eval_service_harness_surface_and_availability_classifier() -> None:
     """The harness uses the consensus eval endpoint and keeps diagnostics."""
     text = PROBE.read_text(encoding="utf-8")
 
-    assert 'SERVICE_URL="${CODEX_EVAL_URL:-http://127.0.0.1:8765/eval}"' in text
-    assert "--data-binary" in text
+    assert "EVAL_PORT" in text
+    assert "direnv exec" in text
+    assert "--data-binary" not in text
+    assert " -d " in text
     assert "codex exec" not in text
 
     pattern = availability_regex()
@@ -578,6 +580,13 @@ fi
 sleep 30
 """
 
+STUB_DIRENV = """\
+#!/usr/bin/env bash
+[[ "$1" == "exec" ]] || exit 2
+shift 2
+exec "$@"
+"""
+
 
 class ProbeRun:
     def __init__(self, tmp_path: Path) -> None:
@@ -587,6 +596,9 @@ class ProbeRun:
         stub = self.bin / "curl"
         stub.write_text(STUB_CURL, encoding="utf-8")
         stub.chmod(0o755)
+        direnv = self.bin / "direnv"
+        direnv.write_text(STUB_DIRENV, encoding="utf-8")
+        direnv.chmod(0o755)
         for d in ("logs", "sessions", "responses"):
             (tmp_path / d).mkdir()
         (tmp_path / "consumer").mkdir()
@@ -608,10 +620,11 @@ class ProbeRun:
         strip_jq: bool = False,
     ) -> tuple[int, dict | None]:
         env = dict(os.environ)
+        env["EVAL_PORT"] = "8765"
         if strip_jq:
             nojq = self.tmp / "bin-nojq"
             nojq.mkdir(exist_ok=True)
-            for tool in ("bash", "dirname", "mkdir", "cp", "touch", "date", "tee", "grep", "curl"):
+            for tool in ("bash", "dirname", "mkdir", "cp", "touch", "date", "tee", "grep", "curl", "direnv"):
                 resolved = shutil.which(tool)
                 if resolved:
                     link = nojq / tool
@@ -671,8 +684,6 @@ class ProbeRun:
                 contract,
                 "--deadline-seconds",
                 str(deadline),
-                "--service-url",
-                "http://127.0.0.1:8765/eval",
                 *extra,
             ],
             capture_output=True,
@@ -710,7 +721,7 @@ def test_probe_parses_service_response_and_passes_on_structured_evidence(tmp_pat
     assert verdict is not None and verdict["verdict"] == "PASS_EVIDENCE"
     request = json.loads((tmp_path / "logs" / "c2.request.json").read_text(encoding="utf-8"))
     assert request["command"] == (
-        "--json --skip-git-repo-check --sandbox workspace-write "
+        "--json --ephemeral --skip-git-repo-check --sandbox workspace-write "
         f"--cd '{tmp_path / 'consumer'}' -- 'probe prompt\n'"
     )
     assert request["timeout"] == 60

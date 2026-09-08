@@ -38,14 +38,15 @@ def test_probe_delegates_codex_execution_to_eval_service() -> None:
 
     text = HARNESS.read_text(encoding="utf-8")
 
-    assert "http://127.0.0.1:8765/eval" in text
-    assert "--data-binary" in text
+    assert "EVAL_PORT" in text
+    assert "direnv exec" in text
+    assert "--data-binary" not in text
+    assert " -d " in text
     assert "--rawfile command" in text
     assert "--consumer-dir" in text
     assert "--cd" in text
     assert "--sandbox workspace-write" in text
     assert "codex exec" not in text
-    assert "direnv exec" not in text
 
 
 def test_model_unavailable_404_is_classified_as_harness_availability() -> None:
