@@ -70,6 +70,26 @@ def derive_child_ids:
         | .item.receiver_thread_ids[]?] | unique
   | if length > 0 then .[] else false end;
 
+# --- mode: derive-target-ids ----------------------------------------------
+# Target-child identity confirmed from the PARENT ROLLOUT by structured
+# correlation: a real spawn_agent function_call whose parsed arguments carry
+# the exact producer-owned agent_type, correlated by call_id to a
+# function_call_output whose parsed agent_id is the child id. A
+# receiver_thread_ids entry without this correlation is a candidate, never a
+# target — another child spawned in the same run must not be scoped in.
+def target_child_ids:
+  items as $it
+  | [$it[]
+     | select(.type? == "function_call" and .name? == "spawn_agent")
+     | select((parse_json(.arguments? // "") | .agent_type? // "") == agent_name)
+     | .call_id? // empty] as $target_calls
+  | [$it[]
+     | select(.type? == "function_call_output")
+     | select(.call_id? as $cid | any($target_calls[]; . == $cid))
+     | (parse_json(.output? // "") | .agent_id? // empty)]
+  | map(select(type == "string" and length > 0)) | unique
+  | if length > 0 then .[] else false end;
+
 # --- mode: thread-ids -----------------------------------------------------
 def thread_ids:
   [.[] | select(.type == "thread.started") | .thread_id? // empty]
@@ -168,6 +188,7 @@ def c3_leg2($expected):
 
 # --- mode dispatch ---------------------------------------------------------
 if $mode == "derive-child-ids" then derive_child_ids
+elif $mode == "derive-target-ids" then target_child_ids
 elif $mode == "thread-ids" then thread_ids
 elif $mode == "c1-spawn" then c1_spawn($child_id)
 elif $mode == "c1-read" then c1_read

@@ -466,6 +466,49 @@ def test_controller_is_idempotent(tmp_path: Path) -> None:
     assert first.returncode == second.returncode == MATCH
 
 
+# --- target-child / session scoping ------------------------------------------
+
+
+def test_c2_parent_without_exact_name_correlation_never_passes(tmp_path: Path) -> None:
+    """Once the parent rollout is in scope, exact-name correlation is the only
+    target source: a spawned child without the correlated agent_type/agent_id
+    spawn output can never satisfy C2, even with a perfect native rollout."""
+    shutil.copy(STREAM_SPAWN, tmp_path / "stream.jsonl")
+    marker, sessions = evidence_case(
+        tmp_path,
+        rollouts=(FIXTURES / "c2" / "child_rollout_ok.jsonl",),
+    )
+    mutate_jsonl(
+        FIXTURES / "c1" / "parent_rollout.jsonl",
+        sessions / "parent_rollout.jsonl",
+        'if .type == "response_item" and .payload.type == "function_call"'
+        ' and .payload.name == "spawn_agent"'
+        " then .payload.arguments |= (fromjson | .agent_type = \"default\" | tojson)"
+        " else . end",
+    )
+    result = check_contract(
+        "c2", tmp_path / "stream.jsonl", tmp_path, scan_dirs=(sessions,), sentinel=SENTINEL
+    )
+    assert result.returncode == NO_MATCH, result.stderr
+
+
+def test_fresh_rollout_with_unreadable_identity_is_ignored(tmp_path: Path) -> None:
+    """Identity-first scoping: a fresh rollout whose structured session identity
+    cannot be read never participates — not as evidence, not as MALFORMED."""
+    shutil.copy(STREAM_SPAWN, tmp_path / "stream.jsonl")
+    marker, sessions = evidence_case(
+        tmp_path, rollouts=(FIXTURES / "c2" / "child_rollout_ok.jsonl",)
+    )
+    (sessions / "opaque.jsonl").write_text('{"payload": BROKEN\n', encoding="utf-8")
+    fresh = marker.stat().st_mtime + 1.0
+    os.utime(sessions / "opaque.jsonl", (fresh, fresh))
+
+    result = check_contract(
+        "c2", tmp_path / "stream.jsonl", tmp_path, scan_dirs=(sessions,), sentinel=SENTINEL
+    )
+    assert result.returncode == MATCH, result.stderr
+
+
 # --- availability text classification (diagnostic surface) ---------------------
 
 

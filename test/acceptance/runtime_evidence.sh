@@ -15,11 +15,25 @@
 # Modes:
 #   derive-child-ids --stream F
 #       print child thread ids derived structurally from real spawn events
+#   derive-target-ids --rollout F
+#       print target child ids confirmed by exact-name spawn correlation in a
+#       parent rollout (agent_type == zotero-collection-cleaner +
+#       call_id-correlated agent_id output)
 #   thread-ids --stream F
 #       print every thread.started thread id, in stream order
 #   check --contract c1|c2|c3-leg1|c3-leg2 --stream F --start-marker M
 #         [--scan-dir D]... [--expect-thread ID] [--sentinel TEXT]
 #       evaluate a named, checked-in evidence contract
+#
+# Evidence scoping: a fresh rollout participates in a verdict only when its
+# structured session_meta.payload.id belongs to the probe's scope — the run's
+# own thread id, or a confirmed target child id. Identity is read BEFORE any
+# byte of the rollout is formally judged, so an unrelated session's rollout
+# can never poison the result (not as evidence, not as MALFORMED). Target
+# child ids are confirmed by exact-name parent-rollout correlation; stream
+# receiver_thread_ids alone are only a candidate pool. While no parent
+# rollout is in scope yet (transient), the candidates provisionally scope
+# evidence; the scope strictens the moment the parent rollout lands.
 #
 # An unfinished trailing record of a live-writer file (no terminating
 # newline) is pending framing, not malformed: it is excluded from the parse
@@ -37,6 +51,7 @@ trap 'rm -f "$TMP_LINES"' EXIT
 
 usage() {
   echo "usage: runtime_evidence.sh derive-child-ids --stream F" >&2
+  echo "       runtime_evidence.sh derive-target-ids --rollout F" >&2
   echo "       runtime_evidence.sh thread-ids --stream F" >&2
   echo "       runtime_evidence.sh check --contract NAME --stream F --start-marker M" >&2
   echo "         [--scan-dir D]... [--expect-thread ID] [--sentinel TEXT]" >&2
@@ -102,10 +117,11 @@ contains_id() {
 mode=${1:-}
 [[ $# -gt 0 ]] && shift
 case "$mode" in
-  derive-child-ids|thread-ids)
+  derive-child-ids|derive-target-ids|thread-ids)
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --stream) STREAM=$2; shift 2 ;;
+        --rollout) STREAM=$2; shift 2 ;;
         *) usage ;;
       esac
     done
@@ -138,50 +154,85 @@ case "$mode" in
 
     if ! validate_file "$STREAM"; then exit 2; fi
 
-    # structured child ids for this run: real spawn events only
+    # Structured identity of the run under judgment: the stream's thread.started
+    complete_lines "$STREAM"
+    PARENT_ID=$(jq -r 'select(.type == "thread.started") | .thread_id // empty' \
+      "$TMP_LINES" 2>/dev/null | head -n 1)
+
+    # Candidate pool: ids structurally spawned in THIS stream (receiver_thread_ids
+    # of real spawn events). Candidates alone never confirm a target.
     ARG_CHILD_IDS_RAW=$(run_mode derive-child-ids "$STREAM")
     rc=$?
     if (( rc != 0 && rc != 1 )); then exit 2; fi
-    CHILD_IDS=(${ARG_CHILD_IDS_RAW//$'\n'/ })
+    SPAWNED_IDS=(${ARG_CHILD_IDS_RAW//$'\n'/ })
 
-    ARG_EXPECTED="$EXPECT_THREAD"
-    ARG_SENTINEL="$SENTINEL"
-    ARG_CHILD_ID=""
-    ARG_CHILD_IDS_ARR="[$(printf '"%s",' "${CHILD_IDS[@]+"${CHILD_IDS[@]}"}" | sed 's/,$//')]"
+    PARENT_FILES=() CHILD_FILES=() TARGET_IDS=() CORRELATED_IDS=()
 
-    # contracts c1/c2 consume scoped rollout transcripts; c3 legs are
-    # stream-only in the measured runtime
-    PARENT_ID=""
-    if [[ "$CONTRACT" == "c1" ]]; then
-      complete_lines "$STREAM"
-      PARENT_ID=$(jq -r 'select(.type == "thread.started") | .thread_id // empty' \
-        "$TMP_LINES" 2>/dev/null | head -n 1)
-    fi
-
-    PARENT_FILES=() CHILD_FILES=()
-    scan_rollouts() {
-      local dir f id
+    # Identity-first scoping: attribute a fresh rollout by its structured
+    # session_meta.payload.id BEFORE judging any of its bytes. A rollout whose
+    # identity is unreadable or outside this probe's scope never participates
+    # and is never validated; a scoped rollout is validated in full, and a
+    # newline-terminated invalid record in it is MALFORMED.
+    collect_scoped_files() {
+      local scope=$1 dir f id
       for dir in ${SCAN_DIRS[@]+"${SCAN_DIRS[@]}"}; do
         [[ -d "$dir" ]] || continue
         while IFS= read -r -d '' f; do
-          validate_file "$f" || { exit 2; }
           id=$(meta_id "$f")
           [[ -n "$id" ]] || continue
-          if [[ -n "$PARENT_ID" && "$id" == "$PARENT_ID" ]]; then
+          if [[ "$scope" == parent ]]; then
+            [[ -n "$PARENT_ID" && "$id" == "$PARENT_ID" ]] || continue
+          else
+            contains_id "$id" "${TARGET_IDS[@]+"${TARGET_IDS[@]}"}" || continue
+          fi
+          validate_file "$f" || exit 2
+          if [[ "$scope" == parent ]]; then
             PARENT_FILES+=("$f")
-          elif contains_id "$id" "${CHILD_IDS[@]+"${CHILD_IDS[@]}"}"; then
+          else
             CHILD_FILES+=("$f")
           fi
-          # files with other structured identities never participate
         done < <(find "$dir" -name '*.jsonl' -newer "$MARKER" -type f -print0 2>/dev/null)
       done
     }
 
+    # Confirmed target-child identity: exact-name spawn correlation in the
+    # parent rollout (agent_type == zotero-collection-cleaner, call_id-
+    # correlated agent_id output), kept only for ids this stream actually
+    # spawned. Once any parent rollout is in scope, correlation is the ONLY
+    # source of target identity — another child spawned in the same run can
+    # neither contribute evidence nor fail the gates.
+    collect_scoped_files parent
+    if (( ${#PARENT_FILES[@]} > 0 )); then
+      for pf in ${PARENT_FILES[@]+"${PARENT_FILES[@]}"}; do
+        ARG_TARGET_IDS_RAW=$(run_mode derive-target-ids "$pf")
+        rc=$?
+        if (( rc != 0 && rc != 1 )); then exit 2; fi
+        for tid in ${ARG_TARGET_IDS_RAW//$'\n'/ }; do
+          contains_id "$tid" "${CORRELATED_IDS[@]+"${CORRELATED_IDS[@]}"}" \
+            || CORRELATED_IDS+=("$tid")
+        done
+      done
+      for tid in ${CORRELATED_IDS[@]+"${CORRELATED_IDS[@]}"}; do
+        contains_id "$tid" "${SPAWNED_IDS[@]+"${SPAWNED_IDS[@]}"}" || continue
+        TARGET_IDS+=("$tid")
+      done
+    else
+      # Transient: the run's own rollout is not on disk yet. Provisionally
+      # scope to the ids the stream spawned (never filename tokens); the
+      # strict correlation scope applies as soon as the parent rollout lands.
+      TARGET_IDS=("${SPAWNED_IDS[@]+"${SPAWNED_IDS[@]}"}")
+    fi
+    collect_scoped_files child
+
+    ARG_EXPECTED="$EXPECT_THREAD"
+    ARG_SENTINEL="$SENTINEL"
+    ARG_CHILD_ID=""
+    ARG_CHILD_IDS_ARR="[$(printf '"%s",' "${TARGET_IDS[@]+"${TARGET_IDS[@]}"}" | sed 's/,$//')]"
+
     RESULT=1
     case "$CONTRACT" in
       c1)
-        scan_rollouts
-        for cid in ${CHILD_IDS[@]+"${CHILD_IDS[@]}"}; do
+        for cid in ${TARGET_IDS[@]+"${TARGET_IDS[@]}"}; do
           pf_ok=0
           for pf in ${PARENT_FILES[@]+"${PARENT_FILES[@]}"}; do
             ARG_CHILD_ID="$cid"
@@ -197,7 +248,8 @@ case "$mode" in
         done
         ;;
       c2)
-        scan_rollouts
+        # gated strictly on the confirmed target child's rollout; other
+        # spawned children can neither satisfy nor trip these gates
         call_ok=0 shim_ok=1
         for cf in ${CHILD_FILES[@]+"${CHILD_FILES[@]}"}; do
           if run_mode c2-call "$cf" >/dev/null 2>&1; then call_ok=1; fi

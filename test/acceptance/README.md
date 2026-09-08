@@ -89,29 +89,60 @@ predicate program. Deterministic fixture tests and the live harness call the
 same `runtime_evidence.sh` controller and the same `runtime_evidence.jq`
 predicates.
 
+### Target-child and session scoping
+
+All child-scoped evidence is gated on the **confirmed target child**, never on
+"any child this run spawned":
+
+1. Candidate pool: ids structurally spawned in the run's own stream
+   (`receiver_thread_ids` of real `spawn_agent` collab events). Candidates
+   alone never confirm a target.
+2. Confirmation: the parent thread's rollout (matched by structured
+   `session_meta.payload.id` against the stream's `thread.started`) contains a
+   real `spawn_agent` `function_call` whose parsed arguments carry
+   `agent_type == "zotero-collection-cleaner"`, correlated by `call_id` to a
+   `function_call_output` whose parsed `agent_id` is the child id
+   (controller mode `derive-target-ids`). Only correlation-confirmed ids that
+   the stream also spawned scope child evidence.
+3. Once any parent rollout is in scope, correlation is the only source of
+   target identity: another child spawned in the same run can neither
+   contribute evidence (C2 native call, C3 leg 1 `wait`/`agents_states`) nor
+   trip the C2 shim negative gate on the target's behalf. While no parent
+   rollout is on disk yet (a transient), the candidate pool provisionally
+   scopes evidence; the scope strictens the moment the parent rollout lands.
+4. Identity-first malformed scoping: a fresh rollout's structured identity is
+   read before any byte of it is judged. A rollout whose identity is
+   unreadable or belongs to another session never participates — it cannot
+   contribute evidence and cannot make the verdict `FAIL_MALFORMED_EVIDENCE`.
+   A rollout scoped to the probe (its own thread id or a confirmed target
+   child id; transiently a spawned candidate id before the parent rollout
+   lands) is validated in full, and a newline-terminated invalid record in it
+   is `FAIL_MALFORMED_EVIDENCE` — never a text-scan fallback.
+
 ### C1 — exact-name discovery/spawn (`--evidence-contract c1`)
 
 Structured PASS conditions (then stop; do not proceed into
 snapshot/plan/business JSON):
 
 1. the current-run stream contains a real `spawn_agent` collab event, and the
-   target child thread id is derived structurally from its
+   target child thread id is one of the ids structurally derived from its
    `receiver_thread_ids` (prompt/instruction JSON fragments can never produce
    a child id; `item.started` collab events carry empty receiver lists);
-2. the parent thread's rollout (matched by structured `session_meta.payload`
-   id, never by filename tokens) contains a real `spawn_agent`
-   `function_call` whose **parsed arguments** carry
-   `agent_type == "zotero-collection-cleaner"`, correlated by `call_id` to a
-   `function_call_output` whose parsed `agent_id` equals the target child id
-   (failed spawn attempts with non-JSON outputs legitimately never
-   correlate);
+2. the target child id is **confirmed** by exact-name correlation in the
+   parent thread's rollout (matched by structured `session_meta.payload` id,
+   never by filename tokens): a real `spawn_agent` `function_call` whose
+   **parsed arguments** carry `agent_type == "zotero-collection-cleaner"`,
+   correlated by `call_id` to a `function_call_output` whose parsed
+   `agent_id` equals the target child id (failed spawn attempts with non-JSON
+   outputs legitimately never correlate). Once the parent rollout is in
+   scope, unconfirmed candidates never scope C1 evidence;
 3. the target child's own fresh rollout contains a real `function_call`
    whose parsed arguments reference
    `zotero-collection-cleaner/SKILL.md`, correlated by `call_id` to a
    successful execution output;
 4. scan-dir candidates are restricted to files newer than the probe's start
-   marker whose structured session identity belongs to this run's derived
-   child ids.
+   marker whose structured session identity belongs to this run's evidence
+   scope (own thread id, confirmed target child ids).
 
 The following can never satisfy C1: the skill name in a prompt, in tool
 schemas, or in any instruction echo (only parsed `function_call` arguments
@@ -123,7 +154,10 @@ scoping); the model claiming it loaded the skill in prose.
 Structured PASS conditions (then stop; do not analyze the tree or generate a
 plan):
 
-1. target child identity structurally confirmed (as in C1);
+1. target child identity structurally confirmed (as in C1) — native-call and
+   no-shim evidence is read exclusively from the confirmed target child's
+   rollout; other children spawned in the same run can neither satisfy nor
+   trip these gates;
 2. a real native MCP `function_call` with name `get_collections` and
    namespace `mcp__zotero` (checked-in constants) whose parsed arguments are
    a JSON object;
@@ -131,17 +165,19 @@ plan):
    parsed output content contains the isolated fixture sentinel — a
    call and a response that are two independent hits prove nothing;
 4. a structural negative gate: no real `function_call` named `skill_mcp` in
-   any scoped child rollout. Instructions forbidding the shim are text, not
-   calls, and never trip the gate;
+   the confirmed target child's rollout. Instructions forbidding the shim are
+   text, not calls, and never trip the gate;
 5. no business invariants: no tree analysis, plan generation or cleaner final
    JSON is required.
 
 ### C3 leg 1 — `needs_input` (`--evidence-contract c3-leg1`)
 
 Structured PASS conditions: the stream's `wait` collab event correlates to
-the target child both through `receiver_thread_ids` and the `agents_states`
-key, and the child's message — parsed as JSON with `fromjson` — satisfies the
-interaction contract as object fields:
+the target child — the correlation-confirmed one (see target-child and
+session scoping above), so a valid `needs_input` emitted by another spawned
+child never satisfies leg 1 — both through `receiver_thread_ids` and the
+`agents_states` key, and the child's message — parsed as JSON with
+`fromjson` — satisfies the interaction contract as object fields:
 
 - `control == "needs_input"`
 - `interaction.category == "root_selection"`
@@ -197,7 +233,10 @@ workflow, no plan/report regeneration, no duplicate/scope re-evaluation.
    falls back to text scanning. A live writer's unfinished trailing record
    (no terminating newline) is pending framing: it is excluded from that
    poll's parse and re-read next round — it cannot mask a completed-line
-   parse error.
+   parse error. Rollouts are attributed by their structured
+   `session_meta.payload.id` before any byte is judged: only probe-scoped
+   rollouts are validated, and an unrelated session's rollout — even a
+   malformed one — never affects the verdict.
 3. Evidence-complete ⇒ codex is terminated immediately (TERM → bounded wait
    → KILL). The parent model never decides how long to keep polling.
 4. Every probe runs under a wall-clock deadline (`--deadline-seconds`, default
