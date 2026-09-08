@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item-0","type":"collab_tool_call","tool":"spawn_agent","receiver_thread_ids":[],"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item-0","type":"collab_tool_call","tool":"spawn_agent","receiver_thread_ids":["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],"status":"completed"}}
+{"type":"item.completed","item":{"id":"item-1","type":"collab_tool_call","tool":"wait","receiver_thread_ids":["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],"agents_states":{"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb":{"status":"completed","message":"# zotero-collection-cleaner\n## 执行纪律\n"}},"status":"completed"}}
+{"type":"item.completed","item":{"id":"item-2","type":"agent_message","text":"冒烟测试完成。"}}
+{"type":"turn.completed"}

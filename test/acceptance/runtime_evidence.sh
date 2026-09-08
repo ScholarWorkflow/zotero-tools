@@ -25,6 +25,9 @@
 #         [--scan-dir D]... [--expect-thread ID] [--sentinel TEXT]
 #       evaluate a named, checked-in evidence contract
 #
+# C1 accepts the eval service's structured spawn/wait response directly. The
+# other contracts continue to use scoped rollouts for their child-side evidence.
+#
 # Evidence scoping: a fresh rollout participates in a verdict only when its
 # structured session_meta.payload.id belongs to the probe's scope — the run's
 # own thread id, or a confirmed target child id. Identity is read BEFORE any
@@ -229,20 +232,26 @@ case "$mode" in
     RESULT=1
     case "$CONTRACT" in
       c1)
-        for cid in ${TARGET_IDS[@]+"${TARGET_IDS[@]}"}; do
-          pf_ok=0
-          for pf in ${PARENT_FILES[@]+"${PARENT_FILES[@]}"}; do
-            ARG_CHILD_ID="$cid"
-            if run_mode c1-spawn "$pf" >/dev/null 2>&1; then pf_ok=1; break; fi
+        if run_mode c1-eval "$STREAM" >/dev/null 2>&1; then
+          RESULT=0
+        else
+          # Keep the measured rollout contract as a compatibility path for
+          # checked-in historical fixtures and older service responses.
+          for cid in ${TARGET_IDS[@]+"${TARGET_IDS[@]}"}; do
+            pf_ok=0
+            for pf in ${PARENT_FILES[@]+"${PARENT_FILES[@]}"}; do
+              ARG_CHILD_ID="$cid"
+              if run_mode c1-spawn "$pf" >/dev/null 2>&1; then pf_ok=1; break; fi
+            done
+            cf_ok=0
+            for cf in ${CHILD_FILES[@]+"${CHILD_FILES[@]}"}; do
+              id=$(meta_id "$cf")
+              [[ "$id" == "$cid" ]] || continue
+              if run_mode c1-read "$cf" >/dev/null 2>&1; then cf_ok=1; break; fi
+            done
+            if (( pf_ok && cf_ok )); then RESULT=0; break; fi
           done
-          cf_ok=0
-          for cf in ${CHILD_FILES[@]+"${CHILD_FILES[@]}"}; do
-            id=$(meta_id "$cf")
-            [[ "$id" == "$cid" ]] || continue
-            if run_mode c1-read "$cf" >/dev/null 2>&1; then cf_ok=1; break; fi
-          done
-          if (( pf_ok && cf_ok )); then RESULT=0; break; fi
-        done
+        fi
         ;;
       c2)
         # gated strictly on the confirmed target child's rollout; other

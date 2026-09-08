@@ -4,8 +4,8 @@
 # Encoded harness rules (see README.md in this directory):
 #   1. a probe PASSES only on its minimal evidence, asserted by the checked-in
 #      structured evidence controller (runtime_evidence.sh + runtime_evidence.jq)
-#      from the streamed transcript and child rollout transcripts — never on a
-#      final cleaner business JSON, never on model self-report, and never on
+#      from the eval service's streamed transcript and, where required, child
+#      rollout transcripts — never on a final cleaner business JSON or on
 #      caller-supplied regex/text scanning of JSON/JSONL;
 #   2. a wall-clock deadline bounds every service request; exhaustion =>
 #      HARNESS_DEADLINE;

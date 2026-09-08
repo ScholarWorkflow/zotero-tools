@@ -41,6 +41,7 @@ WRONG_THREAD = "44444444-4444-4444-8444-444444444444"
 SENTINEL = "SYNTH-FIXTURE-UNIV-2718"
 
 STREAM_SPAWN = FIXTURES / "common" / "stream_spawn.jsonl"
+STREAM_EVAL_C1 = FIXTURES / "common" / "stream_eval_c1.jsonl"
 
 
 # --- helpers ---------------------------------------------------------------
@@ -212,6 +213,24 @@ def test_c1_positive_structured_evidence(tmp_path: Path) -> None:
     shutil.copy(STREAM_SPAWN, tmp_path / "stream.jsonl")
     result = _c1_case(tmp_path, FIXTURES / "c1" / "child_rollout_ok.jsonl")
     assert result.returncode == MATCH, result.stderr
+
+
+def test_c1_accepts_eval_response_without_rollout(tmp_path: Path) -> None:
+    """The eval service response is sufficient for C1; no rollout scan is needed."""
+    shutil.copy(STREAM_EVAL_C1, tmp_path / "stream.jsonl")
+    result = check_contract("c1", tmp_path / "stream.jsonl", tmp_path)
+    assert result.returncode == MATCH, result.stderr
+
+
+def test_c1_eval_response_without_completed_child_fails(tmp_path: Path) -> None:
+    """A spawn without a completed child wait message is not enough."""
+    stream = mutate_jsonl(
+        STREAM_EVAL_C1,
+        tmp_path / "stream.jsonl",
+        'if .item.tool == "wait" then .item.agents_states = {} else . end',
+    )
+    result = check_contract("c1", stream, tmp_path)
+    assert result.returncode == NO_MATCH, result.stderr
 
 
 def test_c1_instruction_echo_never_passes(tmp_path: Path) -> None:

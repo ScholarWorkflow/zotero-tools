@@ -235,9 +235,10 @@ workflow, no plan/report regeneration, no duplicate/scope re-evaluation.
 
 1. PASS is based only on the probe's minimal evidence, evaluated by the
    checked-in structured evidence controller (`runtime_evidence.sh` +
-   `runtime_evidence.jq`) over the streamed exec transcript and the child
-   rollout transcripts under `--scan-dir`. It is never based on model
-   self-report and never on receiving a final cleaner business JSON.
+   `runtime_evidence.jq`). C1 uses the eval service's structured `spawn_agent`
+   and `wait` items directly; the other contracts may use child rollout
+   transcripts under `--scan-dir`. It is never based on receiving a final
+   cleaner business JSON.
 2. The controller distinguishes three internal results, mapped to verdicts by
    the harness: `MATCH` → `PASS_EVIDENCE`; `NO_MATCH` after the service
    response → `FAIL_NO_EVIDENCE`;

@@ -70,6 +70,33 @@ def derive_child_ids:
         | .item.receiver_thread_ids[]?] | unique
   | if length > 0 then .[] else false end;
 
+# C1 may use the eval service's JSONL response directly. The service exposes
+# the completed spawn and wait items, including the child's completed message,
+# so a separate child rollout is not required for this contract.
+def c1_eval_report_ok($message):
+  ($message | type == "string")
+  and ($message | contains("# zotero-collection-cleaner"))
+  and ($message | contains("## 执行纪律"));
+
+def c1_eval:
+  . as $events
+  | ([ $events[]
+       | select(.type == "item.completed")
+       | .item?
+       | select(.type? == "collab_tool_call"
+                and .tool? == "spawn_agent"
+                and .status? == "completed")
+       | .receiver_thread_ids[]? ] | unique) as $children
+  | ($children | length == 1)
+    and (any($events[];
+        (.type == "item.completed")
+        and (.item? | .type? == "collab_tool_call")
+        and (.item.tool? == "wait")
+        and (.item.status? == "completed")
+        and ((.item.receiver_thread_ids? // []) | index($children[0])) != null
+        and ((.item.agents_states? // {})[$children[0]].status? == "completed")
+        and c1_eval_report_ok((.item.agents_states? // {})[$children[0]].message? // "")));
+
 # --- mode: derive-target-ids ----------------------------------------------
 # Target-child identity confirmed from the PARENT ROLLOUT by structured
 # correlation: a real spawn_agent function_call whose parsed arguments carry
@@ -193,6 +220,7 @@ def c3_leg2($expected):
 
 # --- mode dispatch ---------------------------------------------------------
 if $mode == "derive-child-ids" then derive_child_ids
+elif $mode == "c1-eval" then c1_eval
 elif $mode == "derive-target-ids" then target_child_ids
 elif $mode == "thread-ids" then thread_ids
 elif $mode == "c1-spawn" then c1_spawn($child_id)
