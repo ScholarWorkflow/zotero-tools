@@ -136,10 +136,11 @@ snapshot/plan/business JSON):
    outputs legitimately never correlate). Unconfirmed candidates never scope
    C1 evidence — until the parent rollout confirms a target, C1 stays
    NO_MATCH;
-3. the target child's own fresh rollout contains a real `function_call`
-   whose parsed arguments reference
+3. the target child's own fresh rollout contains a real `exec_command`
+   `function_call` whose structured `arguments.cmd` runs `cat` on
    `zotero-collection-cleaner/SKILL.md`, correlated by `call_id` to a
-   successful execution output;
+   successful execution output; a command that only echoes or mentions the
+   path is not a skill read;
 4. scan-dir candidates are restricted to files newer than the probe's start
    marker whose structured session identity belongs to this run's evidence
    scope (own thread id, confirmed target child ids).

@@ -110,15 +110,20 @@ def c1_spawn($child_id):
             (parse_json(.output? // "") | .agent_id? // "") == $child_id));
 
 # Child-side proof: inside the child's OWN rollout (scoped by session_meta
-# payload id), a real function_call exists whose parsed arguments reference
-# the canonical skill path (a genuine read tool input, not instruction text),
+# payload id), a real exec_command function_call uses its structured `cmd`
+# argument to run `cat` on the canonical skill path. Merely echoing or
+# otherwise mentioning the path is not a read. The call must still be
 # correlated by call_id to a successful execution output.
 def c1_read:
   items as $it
   | any($it[];
       (.type? == "function_call")
-      and (((parse_json(.arguments? // "")) | [.. | strings]? // [])
-            | any(.[]; contains(skill_token)))
+      and (.name? == "exec_command")
+      and (parse_json(.arguments? // "") as $args
+           | ($args | type == "object")
+           and (($args.cmd? // "") | type == "string")
+           and (($args.cmd? // "")
+                | test("(^|[;&|]{1,2})[[:space:]]*cat[[:space:]]+[^;&|]*" + skill_token)))
       and has_correlated_output($it; .call_id? // "";
             any(output_texts(.output)[]; contains(exec_success_marker))));
 
