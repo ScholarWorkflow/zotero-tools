@@ -1,0 +1,4 @@
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"early message before thread start"}}
+{"type":"thread.started","thread_id":"22222222-2222-4222-8222-222222222222"}
+{"type":"turn.completed"}
