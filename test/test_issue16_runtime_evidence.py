@@ -90,7 +90,8 @@ def evidence_case(
     marker = tmp_path / "marker"
     marker.touch()
     sessions = tmp_path / "sessions"
-    sessions.mkdir()
+    # exist_ok: cases may be re-invoked on the same tmp_path (idempotency gate)
+    sessions.mkdir(exist_ok=True)
     old = time.time() - 3600
     for src in rollouts:
         # shutil.copy stamps the copy with the current time: strictly newer
@@ -279,7 +280,11 @@ def test_c1_spawn_output_without_child_id_never_passes(tmp_path: Path) -> None:
 
 def _c2_case(tmp_path: Path, rollout: Path, *, sentinel: str = SENTINEL):
     shutil.copy(STREAM_SPAWN, tmp_path / "stream.jsonl")
-    marker, sessions = evidence_case(tmp_path, rollouts=(rollout,))
+    # The parent rollout must be on disk for the exact-name correlation to
+    # confirm the target child (PR #19: candidates never scope evidence).
+    marker, sessions = evidence_case(
+        tmp_path, rollouts=(FIXTURES / "c1" / "parent_rollout.jsonl", rollout)
+    )
     return check_contract(
         "c2", tmp_path / "stream.jsonl", tmp_path, scan_dirs=(sessions,), sentinel=sentinel
     )
@@ -330,7 +335,15 @@ def test_c2_wrong_sentinel_never_passes(tmp_path: Path) -> None:
 
 def _leg1_case(name: str, tmp_path: Path):
     stream = FIXTURES / "c3_leg1" / f"stream_wait_{name}.jsonl"
-    return check_contract("c3-leg1", stream, tmp_path)
+    shutil.copy(stream, tmp_path / "stream.jsonl")
+    # leg-1 evidence is gated on the correlation-confirmed target child, so
+    # the parent rollout must be in the scan scope (PR #19).
+    marker, sessions = evidence_case(
+        tmp_path, rollouts=(FIXTURES / "c1" / "parent_rollout.jsonl",)
+    )
+    return check_contract(
+        "c3-leg1", tmp_path / "stream.jsonl", tmp_path, scan_dirs=(sessions,)
+    )
 
 
 def test_c3_leg1_positive_structured_evidence(tmp_path: Path) -> None:
@@ -433,7 +446,10 @@ def test_malformed_stream_record_is_malformed_even_with_keyword(tmp_path: Path) 
 
 def test_malformed_record_in_scoped_rollout_is_malformed(tmp_path: Path) -> None:
     shutil.copy(STREAM_SPAWN, tmp_path / "stream.jsonl")
-    marker, sessions = evidence_case(tmp_path, rollouts=(FIXTURES / "c2" / "child_rollout_ok.jsonl",))
+    marker, sessions = evidence_case(
+        tmp_path,
+        rollouts=(FIXTURES / "c1" / "parent_rollout.jsonl", FIXTURES / "c2" / "child_rollout_ok.jsonl"),
+    )
     with open(sessions / "child_rollout_ok.jsonl", "a", encoding="utf-8") as f:
         f.write('{"payload":{"broken": true}\n')
 
@@ -448,7 +464,10 @@ def test_unfinished_trailing_record_is_pending_not_malformed(tmp_path: Path) -> 
     pending, so evidence already present still MATCHes this round; a
     newline-terminated broken line would be MALFORMED."""
     shutil.copy(STREAM_SPAWN, tmp_path / "stream.jsonl")
-    marker, sessions = evidence_case(tmp_path, rollouts=(FIXTURES / "c2" / "child_rollout_ok.jsonl",))
+    marker, sessions = evidence_case(
+        tmp_path,
+        rollouts=(FIXTURES / "c1" / "parent_rollout.jsonl", FIXTURES / "c2" / "child_rollout_ok.jsonl"),
+    )
     with open(tmp_path / "stream.jsonl", "a", encoding="utf-8") as f:
         f.write('{"type":"item.compl')  # no newline: writer mid-record
 
@@ -497,7 +516,8 @@ def test_fresh_rollout_with_unreadable_identity_is_ignored(tmp_path: Path) -> No
     cannot be read never participates — not as evidence, not as MALFORMED."""
     shutil.copy(STREAM_SPAWN, tmp_path / "stream.jsonl")
     marker, sessions = evidence_case(
-        tmp_path, rollouts=(FIXTURES / "c2" / "child_rollout_ok.jsonl",)
+        tmp_path,
+        rollouts=(FIXTURES / "c1" / "parent_rollout.jsonl", FIXTURES / "c2" / "child_rollout_ok.jsonl"),
     )
     (sessions / "opaque.jsonl").write_text('{"payload": BROKEN\n', encoding="utf-8")
     fresh = marker.stat().st_mtime + 1.0
@@ -538,7 +558,7 @@ STUB_DIRENV = """\
 #!/usr/bin/env bash
 # Test stub: simulates the codex runtime without launching a model.
 sleep 1
-[[ -n "$STUB_TOUCH" ]] && touch "$STUB_TOUCH"
+[[ -n "$STUB_TOUCH" ]] && for f in $STUB_TOUCH; do touch "$f"; done
 [[ -n "$STUB_STREAM" && -n "$STUB_LINES" ]] && cat "$STUB_LINES" >> "$STUB_STREAM"
 [[ -n "$STUB_STDERR" && -n "$STUB_MSG" ]] && printf '%s\\n' "$STUB_MSG" >> "$STUB_STDERR"
 [[ -n "$STUB_EXIT" ]] && exit "$STUB_EXIT"
@@ -564,7 +584,7 @@ class ProbeRun:
         contract: str,
         *,
         deadline: int = 20,
-        touch: Path | None = None,
+        touch: str | Path | None = None,
         stream_lines: Path | None = None,
         stderr_msg: str | None = None,
         exit_after: str | None = None,
@@ -630,6 +650,7 @@ class ProbeRun:
 
 
 def _probe_c2_setup(tmp: Path) -> None:
+    shutil.copy(FIXTURES / "c1" / "parent_rollout.jsonl", tmp / "sessions" / "parent.jsonl")
     shutil.copy(FIXTURES / "c2" / "child_rollout_ok.jsonl", tmp / "sessions" / "child.jsonl")
     shutil.copy(STREAM_SPAWN, tmp / "lines.jsonl")
 
@@ -643,7 +664,9 @@ def test_probe_passes_and_hard_stops_on_structured_evidence(tmp_path: Path) -> N
         "c2",
         "c2",
         deadline=60,
-        touch=tmp_path / "sessions" / "child.jsonl",
+        # the stub refreshes both rollouts at run time so they are newer than
+        # the probe's start marker (parent rollout confirms the target child)
+        touch=f"{tmp_path}/sessions/child.jsonl {tmp_path}/sessions/parent.jsonl",
         stream_lines=tmp_path / "lines.jsonl",
         extra=("--scan-dir", str(tmp_path / "sessions"), "--sentinel", SENTINEL),
     )

@@ -31,9 +31,10 @@
 # byte of the rollout is formally judged, so an unrelated session's rollout
 # can never poison the result (not as evidence, not as MALFORMED). Target
 # child ids are confirmed by exact-name parent-rollout correlation; stream
-# receiver_thread_ids alone are only a candidate pool. While no parent
-# rollout is in scope yet (transient), the candidates provisionally scope
-# evidence; the scope strictens the moment the parent rollout lands.
+# receiver_thread_ids alone are only a candidate pool and never scope
+# evidence. Until the parent rollout confirms a target, every contract stays
+# NO_MATCH — a candidate can never terminate a live probe early, and an
+# unconfirmed candidate's malformed rollout is not formal evidence.
 #
 # An unfinished trailing record of a live-writer file (no terminating
 # newline) is pending framing, not malformed: it is excluded from the parse
@@ -198,9 +199,10 @@ case "$mode" in
     # Confirmed target-child identity: exact-name spawn correlation in the
     # parent rollout (agent_type == zotero-collection-cleaner, call_id-
     # correlated agent_id output), kept only for ids this stream actually
-    # spawned. Once any parent rollout is in scope, correlation is the ONLY
-    # source of target identity — another child spawned in the same run can
-    # neither contribute evidence nor fail the gates.
+    # spawned. Correlation is the ONLY source of target identity: until a
+    # parent rollout confirms a target, TARGET_IDS is empty and every
+    # contract stays NO_MATCH — an unconfirmed candidate can never terminate
+    # a probe early nor turn its malformed rollout into formal evidence.
     collect_scoped_files parent
     if (( ${#PARENT_FILES[@]} > 0 )); then
       for pf in ${PARENT_FILES[@]+"${PARENT_FILES[@]}"}; do
@@ -216,11 +218,6 @@ case "$mode" in
         contains_id "$tid" "${SPAWNED_IDS[@]+"${SPAWNED_IDS[@]}"}" || continue
         TARGET_IDS+=("$tid")
       done
-    else
-      # Transient: the run's own rollout is not on disk yet. Provisionally
-      # scope to the ids the stream spawned (never filename tokens); the
-      # strict correlation scope applies as soon as the parent rollout lands.
-      TARGET_IDS=("${SPAWNED_IDS[@]+"${SPAWNED_IDS[@]}"}")
     fi
     collect_scoped_files child
 

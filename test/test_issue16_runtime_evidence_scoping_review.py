@@ -193,7 +193,12 @@ def test_c3_leg1_other_spawned_child_cannot_satisfy_target_contract(tmp_path: Pa
 
 
 def test_unrelated_fresh_malformed_rollout_does_not_poison_target_c2(tmp_path: Path) -> None:
-    """Only a scoped rollout may make formal evidence MALFORMED."""
+    """Only a scoped rollout may make formal evidence MALFORMED.
+
+    The parent rollout is present so the exact-name correlation confirms
+    TARGET (evidence requires a confirmed target, PR #19): the unrelated
+    malformed rollout must still not poison that confirmed target's evidence.
+    """
     stream = tmp_path / "stream.jsonl"
     _write_jsonl(
         stream,
@@ -207,14 +212,17 @@ def test_unrelated_fresh_malformed_rollout_does_not_poison_target_c2(tmp_path: P
     marker.touch()
     sessions = tmp_path / "sessions"
     sessions.mkdir()
+    parent = sessions / "parent.jsonl"
     target = sessions / "target.jsonl"
     unrelated = sessions / "unrelated.jsonl"
+    _write_jsonl(parent, _target_parent_rollout())
     _write_jsonl(target, _native_c2_rollout(TARGET))
     unrelated.write_text(
         json.dumps({"type": "session_meta", "payload": {"id": OTHER}}) + "\n"
         + '{"type":"response_item","payload": BROKEN}\n',
         encoding="utf-8",
     )
+    _freshen(parent, marker)
     _freshen(target, marker)
     _freshen(unrelated, marker)
 

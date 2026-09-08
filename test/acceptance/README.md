@@ -104,20 +104,19 @@ All child-scoped evidence is gated on the **confirmed target child**, never on
    `function_call_output` whose parsed `agent_id` is the child id
    (controller mode `derive-target-ids`). Only correlation-confirmed ids that
    the stream also spawned scope child evidence.
-3. Once any parent rollout is in scope, correlation is the only source of
-   target identity: another child spawned in the same run can neither
-   contribute evidence (C2 native call, C3 leg 1 `wait`/`agents_states`) nor
-   trip the C2 shim negative gate on the target's behalf. While no parent
-   rollout is on disk yet (a transient), the candidate pool provisionally
-   scopes evidence; the scope strictens the moment the parent rollout lands.
+3. Correlation is the only source of target identity: another child spawned
+   in the same run can neither contribute evidence (C2 native call, C3 leg 1
+   `wait`/`agents_states`) nor trip the C2 shim negative gate on the target's
+   behalf. Until a parent rollout confirms a target, no candidate scopes
+   evidence and every contract stays NO_MATCH — a candidate can never
+   terminate a live probe before the exact-name correlation exists.
 4. Identity-first malformed scoping: a fresh rollout's structured identity is
    read before any byte of it is judged. A rollout whose identity is
    unreadable or belongs to another session never participates — it cannot
    contribute evidence and cannot make the verdict `FAIL_MALFORMED_EVIDENCE`.
    A rollout scoped to the probe (its own thread id or a confirmed target
-   child id; transiently a spawned candidate id before the parent rollout
-   lands) is validated in full, and a newline-terminated invalid record in it
-   is `FAIL_MALFORMED_EVIDENCE` — never a text-scan fallback.
+   child id) is validated in full, and a newline-terminated invalid record in
+   it is `FAIL_MALFORMED_EVIDENCE` — never a text-scan fallback.
 
 ### C1 — exact-name discovery/spawn (`--evidence-contract c1`)
 
@@ -134,8 +133,9 @@ snapshot/plan/business JSON):
    **parsed arguments** carry `agent_type == "zotero-collection-cleaner"`,
    correlated by `call_id` to a `function_call_output` whose parsed
    `agent_id` equals the target child id (failed spawn attempts with non-JSON
-   outputs legitimately never correlate). Once the parent rollout is in
-   scope, unconfirmed candidates never scope C1 evidence;
+   outputs legitimately never correlate). Unconfirmed candidates never scope
+   C1 evidence — until the parent rollout confirms a target, C1 stays
+   NO_MATCH;
 3. the target child's own fresh rollout contains a real `function_call`
    whose parsed arguments reference
    `zotero-collection-cleaner/SKILL.md`, correlated by `call_id` to a
