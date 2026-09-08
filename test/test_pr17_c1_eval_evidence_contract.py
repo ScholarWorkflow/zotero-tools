@@ -1,14 +1,14 @@
-"""Regression for PR #17 C1 eval-only evidence.
+"""Regression for PR #17 C1 structured eval evidence.
 
-The eval stream can prove that a child thread was spawned and later completed,
-but the measured stream shape in ``stream_eval_c1.jsonl`` does not prove either
-that the child was selected with ``agent_type == zotero-collection-cleaner`` or
-that the child actually loaded/read the canonical SKILL.md. A child report that
-merely contains producer-owned headings is model output, not wiring evidence.
+A completed eval-stream ``spawn_agent`` event is a valid evidence surface.  The
+controller must use structured receiver identity when the runtime exposes it;
+a child report that merely repeats producer-owned headings is not a substitute
+for that identity.
 """
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -20,15 +20,8 @@ CONTROLLER = ACC / "runtime_evidence.sh"
 STREAM_EVAL_C1 = ACC / "fixtures" / "common" / "stream_eval_c1.jsonl"
 
 
-def test_c1_eval_only_child_report_cannot_prove_exact_agent_or_skill_load(
-    tmp_path: Path,
-) -> None:
-    stream = tmp_path / "stream.jsonl"
-    marker = tmp_path / "marker"
-    marker.touch()
-    shutil.copy(STREAM_EVAL_C1, stream)
-
-    result = subprocess.run(
+def _run_c1(stream: Path, marker: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [
             "bash",
             str(CONTROLLER),
@@ -45,8 +38,58 @@ def test_c1_eval_only_child_report_cannot_prove_exact_agent_or_skill_load(
         check=False,
     )
 
+
+def _rewrite_spawn_receiver_agents(stream: Path, receiver_agents: list[dict[str, str]]) -> None:
+    rows = []
+    for line in stream.read_text().splitlines():
+        row = json.loads(line)
+        item = row.get("item") if isinstance(row, dict) else None
+        if (
+            row.get("type") == "item.completed"
+            and isinstance(item, dict)
+            and item.get("type") == "collab_tool_call"
+            and item.get("tool") == "spawn_agent"
+        ):
+            item["receiver_agents"] = receiver_agents
+        rows.append(row)
+    stream.write_text("".join(json.dumps(row, separators=(",", ":")) + "\n" for row in rows))
+
+
+def test_c1_eval_spawn_without_structured_role_is_no_match(tmp_path: Path) -> None:
+    stream = tmp_path / "stream.jsonl"
+    marker = tmp_path / "marker"
+    marker.touch()
+    shutil.copy(STREAM_EVAL_C1, stream)
+    _rewrite_spawn_receiver_agents(stream, [])
+
+    result = _run_c1(stream, marker)
+
     assert result.returncode == 1, (
-        "C1 must stay NO_MATCH until structured evidence proves both the exact "
-        "producer-owned subagent identity and a real canonical SKILL.md read; "
+        "C1 must stay NO_MATCH when eval proves that a child was spawned but "
+        "does not structurally identify the spawned role; "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+
+
+def test_c1_eval_spawn_with_wrong_structured_role_is_no_match(tmp_path: Path) -> None:
+    stream = tmp_path / "stream.jsonl"
+    marker = tmp_path / "marker"
+    marker.touch()
+    shutil.copy(STREAM_EVAL_C1, stream)
+    _rewrite_spawn_receiver_agents(
+        stream,
+        [
+            {
+                "thread_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                "agent_role": "default",
+            }
+        ],
+    )
+
+    result = _run_c1(stream, marker)
+
+    assert result.returncode == 1, (
+        "C1 must stay NO_MATCH when eval structurally says the spawned child "
+        "used the wrong role, even if the child message echoes cleaner headings; "
         f"stdout={result.stdout!r} stderr={result.stderr!r}"
     )
