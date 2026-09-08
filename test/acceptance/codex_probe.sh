@@ -143,7 +143,7 @@ COMMAND_FILE="$LOG_DIR/$PROBE_NAME.command.txt"
 CODEX_CD=$(jq -nr --arg value "$CONSUMER_DIR" '$value | @sh') || finish HARNESS_PREREQUISITE
 CODEX_PROMPT=$(jq -Rrs '@sh' "$PROMPT_COPY") || finish HARNESS_PREREQUISITE
 printf '%s --cd %s -- %s' \
-  '--json --ephemeral --skip-git-repo-check --sandbox workspace-write' \
+  '--json --skip-git-repo-check --sandbox workspace-write' \
   "$CODEX_CD" "$CODEX_PROMPT" >"$COMMAND_FILE" \
   || finish HARNESS_PREREQUISITE
 jq -n --rawfile command "$COMMAND_FILE" --argjson timeout "$DEADLINE" \

@@ -63,7 +63,7 @@ prepared consumer's workspace root:
 curl -X POST http://127.0.0.1:$EVAL_PORT/eval \
   -H 'Content-Type: application/json' \
   -d '{
-    "command": "--json --ephemeral --skip-git-repo-check --sandbox workspace-write --cd /tmp/test-project --model MODEL_NAME -- \"检查当前项目的测试\"",
+    "command": "--json --skip-git-repo-check --sandbox workspace-write --cd /tmp/test-project --model MODEL_NAME -- \"检查当前项目的测试\"",
     "timeout": 300
   }'
 ```

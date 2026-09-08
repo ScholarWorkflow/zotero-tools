@@ -721,7 +721,7 @@ def test_probe_parses_service_response_and_passes_on_structured_evidence(tmp_pat
     assert verdict is not None and verdict["verdict"] == "PASS_EVIDENCE"
     request = json.loads((tmp_path / "logs" / "c2.request.json").read_text(encoding="utf-8"))
     assert request["command"] == (
-        "--json --ephemeral --skip-git-repo-check --sandbox workspace-write "
+        "--json --skip-git-repo-check --sandbox workspace-write "
         f"--cd '{tmp_path / 'consumer'}' -- 'probe prompt\n'"
     )
     assert request["timeout"] == 60
