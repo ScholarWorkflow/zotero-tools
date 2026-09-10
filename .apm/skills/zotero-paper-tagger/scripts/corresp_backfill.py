@@ -426,13 +426,13 @@ def main():
     args = ap.parse_args(argv)
 
     if not T.check_read_api():
-        out("错误: 23119 不通，Zotero 没开。请打开 Zotero 后重试。")
+        out(f"错误: {T.read_base()} 不通，Zotero 没开。请打开 Zotero 后重试。")
         sys.exit(1)
     mcp = T.Mcp()
     try:
         mcp.connect()
     except Exception as e:
-        out(f"错误: 23120 zotero-mcp 插件不通（{e}）。请确认 Zotero 已开且插件启用。")
+        out(f"错误: zotero-mcp 插件不通（{T.mcp_url()}，{e}）。请确认 Zotero 已开且插件启用。")
         sys.exit(1)
 
     if args.program_root:

@@ -45,7 +45,7 @@ def test_zotero_read_bundles_session_helper():
     text = helper.read_text(encoding="utf-8")
     assert helper.is_file()
     assert 'Mcp-Session-Id' in text
-    assert 'http://127.0.0.1:23120/mcp' in text
+    assert '${ZOTERO_MCP_URL:-http://127.0.0.1:23120/mcp}' in text
 
 
 def test_backfill_uses_configured_storage_root(tmp_path, monkeypatch):
