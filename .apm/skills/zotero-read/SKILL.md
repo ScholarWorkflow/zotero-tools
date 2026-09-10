@@ -1,19 +1,19 @@
 ---
 name: zotero-read
-description: Read and search literature stored in the local Zotero library — browse collection trees, search by metadata / full-text / annotations, deep-read individual papers (metadata + abstract + PDF full text + notes + highlights) — and answer the user's questions with citations. Read-only, no API key, all via curl to the local zotero-mcp plugin (127.0.0.1:23120). Use when the user asks to find, summarize, explain, or quote papers stored in Zotero (e.g. "在Zotero里找关于X的文献", "帮我讲讲库里这篇论文", "哪些论文提到了Y概念"). Complement to zotero-save: zotero-save WRITES (search & import), this skill only READS.
+description: Read and search literature stored in the local Zotero library — browse collection trees, search by metadata / full-text / annotations, deep-read individual papers (metadata + abstract + PDF full text + notes + highlights) — and answer the user's questions with citations. Read-only, no API key, all via curl to the local zotero-mcp plugin (default 127.0.0.1:23120/mcp, override with ZOTERO_MCP_URL). Use when the user asks to find, summarize, explain, or quote papers stored in Zotero (e.g. "在Zotero里找关于X的文献", "帮我讲讲库里这篇论文", "哪些论文提到了Y概念"). Complement to zotero-save: zotero-save WRITES (search & import), this skill only READS.
 ---
 
 # Skill: zotero-read
 
 ## What I do
 
-读取与检索**本地 Zotero 库**中的文献(**只读,零写入**):浏览分类树、按元数据/全文/标注搜索、深读单篇文献(元数据+摘要+PDF 全文+笔记+高亮标注),并带引用(zoteroUrl)回答用户问题。全程 curl 直连本地 zotero-mcp 插件(127.0.0.1:23120),无 API key、不碰云。
+读取与检索**本地 Zotero 库**中的文献(**只读,零写入**):浏览分类树、按元数据/全文/标注搜索、深读单篇文献(元数据+摘要+PDF 全文+笔记+高亮标注),并带引用(zoteroUrl)回答用户问题。全程 curl 直连本地 zotero-mcp 插件(完整 endpoint 默认 `127.0.0.1:23120/mcp`,可用环境变量 `ZOTERO_MCP_URL` 覆盖),无 API key、不碰云。
 
 与 zotero-save(写入:搜索/导入/归类)**互补**——本 skill 只用读工具,绝不调用 write_* 系列。
 
 Pipeline:
 
-1. **健康检查**:Zotero 在跑(23119 ping)+ MCP 插件通(23120)
+1. **健康检查**:Zotero 在跑(HTTP ping,默认 23119)+ MCP 插件通(默认 23120)
 2. **定位**:`get_collections`(递归分类树)/ `search_collections` / `get_collection_items`
 3. **检索**:`search_library`(元数据)/ `search_fulltext`(全文)/ `search_annotations`(标注)
 4. **深读**:`get_item_details`(元数据+笔记+标签)→ `get_content`(摘要+附件全文+本地 PDF 路径)→ `get_annotations`(高亮/注释)
@@ -37,11 +37,15 @@ Pipeline:
 ### 1. Zotero 已打开 + cookjohn/zotero-mcp 插件已装并启用
 
 ```bash
-curl -s --max-time 5 http://127.0.0.1:23119/connector/ping   # 期望 "Zotero is running"
-curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:23120/mcp   # 期望 4xx/200(有响应即通)
+ZOTERO_HTTP_URL="${ZOTERO_HTTP_URL:-http://127.0.0.1:23119}"   # Zotero 本地 HTTP API base
+ZOTERO_HTTP_URL="${ZOTERO_HTTP_URL%/}"                         # 契约:去掉尾部斜杠
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL:-http://127.0.0.1:23120/mcp}" # 完整 MCP endpoint(已含 /mcp)
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL%/}"                           # 契约:去掉尾部斜杠
+curl -s --max-time 5 "$ZOTERO_HTTP_URL/connector/ping"   # 期望 "Zotero is running"
+curl -s -o /dev/null -w "%{http_code}" "$ZOTERO_MCP_URL" # 期望 4xx/200(有响应即通)
 ```
 
-- 23120 不通 → Zotero 没开、或插件没启用(Preferences → Zotero MCP Plugin → Enable Server,默认端口 23120)
+- 默认 23120 不通 → Zotero 没开、或插件没启用(Preferences → Zotero MCP Plugin → Enable Server,默认端口 23120)
 
 **无需**启动 translation-server(那是 zotero-save 写元数据用的;本 skill 只读不依赖)。
 
@@ -49,7 +53,7 @@ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:23120/mcp   # 期望 4xx
 
 ## Zotero MCP 调用方式(curl 直连,唯一主路径)
 
-Zotero 插件在 `http://127.0.0.1:23120/mcp` 提供 Streamable HTTP 传输的 MCP 服务器。用 curl 按 JSON-RPC 调用,分两步:
+Zotero 插件提供 Streamable HTTP 传输的 MCP 服务器,完整 endpoint 默认 `127.0.0.1:23120/mcp`(可用环境变量 `ZOTERO_MCP_URL` 指向替代 endpoint,该变量已含 `/mcp`,调用时**绝不再拼一次 /mcp**;下方示例统一用 `"$ZOTERO_MCP_URL"`,其 unset 默认见健康检查中的展开式)。用 curl 按 JSON-RPC 调用,分两步:
 
 ### 步骤 A:建立会话(拿 Mcp-Session-Id)
 
@@ -66,7 +70,9 @@ SID=$(bash "<skill_dir>/scripts/new-session.sh")
 ### 步骤 B:调工具(每条请求都带 Mcp-Session-Id 头)
 
 ```bash
-curl -s --max-time 60 -X POST http://127.0.0.1:23120/mcp \
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL:-http://127.0.0.1:23120/mcp}" # 完整 MCP endpoint(已含 /mcp)
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL%/}"                           # 契约:去掉尾部斜杠
+curl -s --max-time 60 -X POST "$ZOTERO_MCP_URL" \
   -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
   -H "Mcp-Session-Id: $SID" \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"<工具名>","arguments":<JSON参数>}}'
@@ -100,7 +106,9 @@ curl -s --max-time 60 -X POST http://127.0.0.1:23120/mcp \
 ### 模式 A:主题检索(元数据级)
 
 ```bash
-curl -s --max-time 60 -X POST http://127.0.0.1:23120/mcp \
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL:-http://127.0.0.1:23120/mcp}" # 完整 MCP endpoint(已含 /mcp)
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL%/}"                           # 契约:去掉尾部斜杠
+curl -s --max-time 60 -X POST "$ZOTERO_MCP_URL" \
   -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
   -H "Mcp-Session-Id: $SID" \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_library","arguments":{"q":"<关键词>","limit":15}}}'
@@ -170,7 +178,7 @@ zotero://select/library/items/<key>
 
 ## Troubleshooting
 
-- **23120 不通**:Zotero 没开 / 插件未启用(Preferences → Zotero MCP Plugin → Enable Server)/ 端口被改
+- **默认 23120 不通**:Zotero 没开 / 插件未启用(Preferences → Zotero MCP Plugin → Enable Server)/ 端口被改(或 `ZOTERO_MCP_URL` 指向了不在线的 endpoint)
 - **initialize 无响应或超时**:插件内部出问题,重启插件服务
 - **`zotero-mcp-session: command not found`**:不要额外安装包来补这个命令;直接执行当前 skill 自带的 `scripts/new-session.sh`
 - **search_fulltext 报 "q (query) is required"**:参数名用 `q`

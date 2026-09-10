@@ -12,8 +12,9 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
+from zotero_tools.endpoints import zotero_mcp_url
 
-MCP_URL = "http://127.0.0.1:23120/mcp"
+
 MCP_TIMEOUT_SECONDS = 60
 
 
@@ -114,7 +115,7 @@ def _call_tool(session_id: str, name: str, arguments: dict[str, Any], request_id
         str(MCP_TIMEOUT_SECONDS),
         "-X",
         "POST",
-        MCP_URL,
+        zotero_mcp_url(),
         "-H",
         "Content-Type: application/json",
         "-H",

@@ -10,12 +10,13 @@
 通讯作者判定采用「显式记录优先」（读 _corresp_cache.json，由上游抓取流程产出），无记录回落末位启发式。主流程只增不删；删除走两段式——
 报告出分歧清单，人工确认编号后用 remove-tags 批量执行。
 
-只增不删（remove-tags 除外）; 幂等可重跑。读 23119 本地 API, 写 23120 zotero-mcp 插件 write_tag。
+只增不删（remove-tags 除外）; 幂等可重跑。读 Zotero 本地 HTTP API（默认 127.0.0.1:23119，ZOTERO_HTTP_URL 可覆盖）, 写 zotero-mcp 插件（完整 endpoint 默认 127.0.0.1:23120/mcp，ZOTERO_MCP_URL 可覆盖，调用处绝不再拼 /mcp）write_tag。
 """
 
 import argparse
 import itertools
 import json
+import os
 import re
 import sys
 import time
@@ -24,13 +25,25 @@ import urllib.request
 from collections import Counter
 from pathlib import Path
 
-READ_BASE = "http://127.0.0.1:23119"
-MCP_URL = "http://127.0.0.1:23120/mcp"
+DEFAULT_READ_BASE = "http://127.0.0.1:23119"
+DEFAULT_MCP_URL = "http://127.0.0.1:23120/mcp"
 SKIP_ITEM_TYPES = {"attachment", "note", "annotation"}
 REPORT_NAME = "_论文标签报告.md"
 MAPPING_NAME = "_zotero_collections.json"
 SIGNATURE_NAME = "_署名对照.json"
 CORRESP_CACHE_NAME = "_corresp_cache.json"
+
+
+def read_base():
+    """Zotero 本地 HTTP API base；读 ZOTERO_HTTP_URL（末尾 / 去掉后拼目标 path）。"""
+    value = (os.environ.get("ZOTERO_HTTP_URL") or "").strip().rstrip("/")
+    return value or DEFAULT_READ_BASE
+
+
+def mcp_url():
+    """完整 zotero-mcp endpoint（已含 /mcp）；读 ZOTERO_MCP_URL，绝不再追加 /mcp。"""
+    value = (os.environ.get("ZOTERO_MCP_URL") or "").strip().rstrip("/")
+    return value or DEFAULT_MCP_URL
 
 # 异体字归一表（人名常见新旧字形/异体），NFKC 之后再过一遍
 VARIANT_MAP = {
@@ -58,14 +71,14 @@ def out(s=""):
 
 def check_read_api():
     try:
-        with urllib.request.urlopen(f"{READ_BASE}/connector/ping", timeout=5) as r:
+        with urllib.request.urlopen(f"{read_base()}/connector/ping", timeout=5) as r:
             return b"running" in r.read()
     except Exception:
         return False
 
 
 class Mcp:
-    """23120 zotero-mcp 插件的 Streamable HTTP 会话。"""
+    """zotero-mcp 插件的 Streamable HTTP 会话。"""
 
     def __init__(self):
         self.sid = None
@@ -77,14 +90,14 @@ class Mcp:
             "params": {"protocolVersion": "2025-03-26", "capabilities": {},
                        "clientInfo": {"name": "zotero-paper-tagger", "version": "1"}},
         }).encode()
-        req = urllib.request.Request(MCP_URL, data=body, method="POST", headers={
+        req = urllib.request.Request(mcp_url(), data=body, method="POST", headers={
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
         })
         with urllib.request.urlopen(req, timeout=15) as r:
             self.sid = r.headers.get("Mcp-Session-Id")
         if not self.sid:
-            raise RuntimeError("23120 initialize 未返回 Mcp-Session-Id")
+            raise RuntimeError("zotero-mcp initialize 未返回 Mcp-Session-Id")
 
     def call(self, tool, args, retries=2):
         self._id += 1
@@ -92,7 +105,7 @@ class Mcp:
                            "params": {"name": tool, "arguments": args}}).encode()
         for attempt in range(retries + 1):
             try:
-                req = urllib.request.Request(MCP_URL, data=body, method="POST", headers={
+                req = urllib.request.Request(mcp_url(), data=body, method="POST", headers={
                     "Content-Type": "application/json",
                     "Accept": "application/json, text/event-stream",
                     "Mcp-Session-Id": self.sid,
@@ -551,7 +564,7 @@ def fetch_collection_items(key):
         return _FETCH_CACHE[key]
     items, start, page = {}, 0, 0
     while True:
-        url = f"{READ_BASE}/api/users/0/collections/{key}/items?format=json&limit=100&start={start}"
+        url = f"{read_base()}/api/users/0/collections/{key}/items?format=json&limit=100&start={start}"
         with urllib.request.urlopen(url, timeout=60) as r:
             total = int(r.headers.get("Total-Results", "0"))
             batch = json.load(r)
@@ -1021,13 +1034,13 @@ def main():
             sys.exit(1)
         item_key, tags = argv[1], argv[2:]
         if not check_read_api():
-            out("错误: Zotero 没开（23119 不通）。请打开 Zotero 后重试。")
+            out(f"错误: Zotero 没开（{read_base()} 不通）。请打开 Zotero 后重试。")
             sys.exit(1)
         mcp = Mcp()
         try:
             mcp.connect()
         except Exception as e:
-            out(f"错误: 23120 zotero-mcp 插件不通（{e}）。请确认 Zotero 已开且插件启用。")
+            out(f"错误: zotero-mcp 插件不通（{mcp_url()}，{e}）。请确认 Zotero 已开且插件启用。")
             sys.exit(1)
         resp = mcp.call("write_tag", {"action": action, "itemKey": item_key, "tags": tags})
         out(json.dumps(resp, ensure_ascii=False, indent=2))
@@ -1041,13 +1054,13 @@ def main():
     args = ap.parse_args(argv)
 
     if not check_read_api():
-        out("错误: 23119 不通，Zotero 没开。请打开 Zotero 后重试。")
+        out(f"错误: {read_base()} 不通，Zotero 没开。请打开 Zotero 后重试。")
         sys.exit(1)
     mcp = Mcp()
     try:
         mcp.connect()
     except Exception as e:
-        out(f"错误: 23120 zotero-mcp 插件不通（{e}）。请确认 Zotero 已开且插件启用。")
+        out(f"错误: zotero-mcp 插件不通（{mcp_url()}，{e}）。请确认 Zotero 已开且插件启用。")
         sys.exit(1)
 
     if args.program_root:

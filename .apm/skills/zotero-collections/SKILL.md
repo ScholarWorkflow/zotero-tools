@@ -27,21 +27,25 @@ Zotero **分类树**的唯一实现地。它只负责三件事，其余一律不
 ## Zotero MCP 会话（curl，与 zotero-save 同套约定）
 
 ```bash
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL:-http://127.0.0.1:23120/mcp}" # 完整 MCP endpoint(已含 /mcp)
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL%/}"                           # 契约:去掉尾部斜杠
 HDR=$(mktemp)
-curl -s -D "$HDR" -X POST http://127.0.0.1:23120/mcp \
+curl -s -D "$HDR" -X POST "$ZOTERO_MCP_URL" \
   -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"zotero-collections","version":"1"}}}' -o /dev/null
 SID=$(grep -i 'Mcp-Session-Id' "$HDR" | tr -d '\r' | awk '{print $2}')
 ```
 
 ```bash
-curl -s --max-time 60 -X POST http://127.0.0.1:23120/mcp \
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL:-http://127.0.0.1:23120/mcp}" # 完整 MCP endpoint(已含 /mcp)
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL%/}"                           # 契约:去掉尾部斜杠
+curl -s --max-time 60 -X POST "$ZOTERO_MCP_URL" \
   -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
   -H "Mcp-Session-Id: $SID" \
   -d '{"jsonrpc":"2.0","id":N,"method":"tools/call","params":{"name":"<工具>","arguments":<JSON>}}'
 ```
 
-响应的 `content[].text` 是**嵌套 JSON 字符串**，需再 parse 一次。一次会话可复用 SID。
+每个 `bash` 代码块独立可执行：前两行的 endpoint resolution（default expansion + 去尾斜杠）必须完整复制，不得依赖前一个代码块留下的 shell 变量。响应的 `content[].text` 是**嵌套 JSON 字符串**，需再 parse 一次。一次会话可复用 SID。
 
 ## 路径计算规则（与 professor-worker Step 5A 一字不差）
 
