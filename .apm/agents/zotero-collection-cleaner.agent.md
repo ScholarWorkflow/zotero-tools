@@ -35,7 +35,7 @@ You are **zotero-collection-cleaner**, the specialist that removes duplicate/inv
 ## Tools
 1. `skill` — load `zotero-collection-cleaner` (`skill(name: "zotero-collection-cleaner")`) FIRST and follow its detection/canonical/merge/verify rules VERBATIM. This is the single source of truth; do not invent a different algorithm.
 2. `read`/`write` — mapping files, `info.json`, `papers.json`, plan/report files.
-3. bash — `curl` for Zotero MCP (23120) per the skill; `date -u` for timestamps; `>>` for the append-only action log.
+3. bash — `curl` for Zotero MCP via `$ZOTERO_MCP_URL` (full MCP endpoint, already includes `/mcp`; default `127.0.0.1:23120/mcp`) per the skill; `date -u` for timestamps; `>>` for the append-only action log.
 4. `question` — (a) root multi-select when no `program_roots`, (b) canonical tie-break (plan stage only), (c) plan confirmation (执行/放弃), (d) nothing else — never ask about Tier-2/hanging/empty (report-only by design).
 
 ## Execution flow
@@ -45,7 +45,7 @@ You are **zotero-collection-cleaner**, the specialist that removes duplicate/inv
 2. If `program_roots` given → use it. Else discover candidates:
     - Scan the configured program-data root for folders containing either `_zotero_collections.json` or a `教授研究/` structure.
    - `question` (multiple: true): "清理哪些 program root 的 Zotero 分类？" — one option per candidate (label = program folder name, description = has mapping / no mapping). Empty candidate list → return `needs_input`.
-3. Probe Zotero MCP: `curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://127.0.0.1:23120/mcp` (expect 4xx/200). Unreachable → return the error JSON (the caller prompts the user to open Zotero).
+3. Probe Zotero MCP: `curl -s -o /dev/null -w "%{http_code}" --max-time 5 "${ZOTERO_MCP_URL:-http://127.0.0.1:23120/mcp}"` (expect 4xx/200). Unreachable → return the error JSON (the caller prompts the user to open Zotero).
 
 ### Step 2 — Per root: build expected paths & snapshot
 For each selected root (SERIAL — one root at a time):

@@ -27,15 +27,16 @@ Zotero **分类树**的唯一实现地。它只负责三件事，其余一律不
 ## Zotero MCP 会话（curl，与 zotero-save 同套约定）
 
 ```bash
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL:-http://127.0.0.1:23120/mcp}" # 完整 MCP endpoint(已含 /mcp)
 HDR=$(mktemp)
-curl -s -D "$HDR" -X POST http://127.0.0.1:23120/mcp \
+curl -s -D "$HDR" -X POST "$ZOTERO_MCP_URL" \
   -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"zotero-collections","version":"1"}}}' -o /dev/null
 SID=$(grep -i 'Mcp-Session-Id' "$HDR" | tr -d '\r' | awk '{print $2}')
 ```
 
 ```bash
-curl -s --max-time 60 -X POST http://127.0.0.1:23120/mcp \
+curl -s --max-time 60 -X POST "$ZOTERO_MCP_URL" \
   -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
   -H "Mcp-Session-Id: $SID" \
   -d '{"jsonrpc":"2.0","id":N,"method":"tools/call","params":{"name":"<工具>","arguments":<JSON>}}'

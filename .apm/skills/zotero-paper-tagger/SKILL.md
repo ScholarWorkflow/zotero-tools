@@ -108,11 +108,11 @@ metadata:
 | `<程序根>/教授研究/_zotero_collections.json` | `university` 全称、`professors{}` 名字→分类路径、`collections{}` 路径→key | 唯一的教授名单来源；papers.json 的条目清单**不信任** |
 | 每位教授 `papers.json` | 只取 `professor.name` / `professor.name_romaji`；另取全部非空 `item_key` 做差异对照 | 差异 = item_key 为空（failed/pending）或 key 不在库里的条目；旧版顶层 list 格式自动兼容（无 professor 元数据） |
 | `<程序根>/教授研究/_corresp_cache.json`（只读） | 通讯作者显式记录：itemKey/DOI → {names, emails, raw_text, channel, confidence, fetched_at} | 由上游抓取流程产出；文件不存在时使用末位作者启发式 |
-| 23119 本地 API（读） | `GET /api/users/0/collections/<key>/items?format=json&limit=100&start=N` | 分页按 `Total-Results` 头；creators 为 `{firstName,lastName,creatorType}`；返回含 attachment，必须按 itemType 过滤；脚本同时读取子分类并去重 |
-| 23120 zotero-mcp 插件（写） | `write_tag {action:add/remove/set, itemKey, tags[]}` | 返回 beforeTags/afterTags/tagsModified；schema 无 manual/automatic 类型字段 |
+| Zotero 本地 API（读；默认 23119，`ZOTERO_HTTP_URL` 可覆盖） | `GET /api/users/0/collections/<key>/items?format=json&limit=100&start=N` | 分页按 `Total-Results` 头；creators 为 `{firstName,lastName,creatorType}`；返回含 attachment，必须按 itemType 过滤；脚本同时读取子分类并去重 |
+| zotero-mcp 插件（写；完整 endpoint 默认 23120/mcp，`ZOTERO_MCP_URL` 可覆盖） | `write_tag {action:add/remove/set, itemKey, tags[]}` | 返回 beforeTags/afterTags/tagsModified；schema 无 manual/automatic 类型字段 |
 | `<程序根>/教授研究/_署名对照.json`（本脚本产出） | 每位教授的署名簿：种子数、自动变体、存疑变体、冲突作者 | 每次全量运行重建；供人查阅与复核误判，脚本自身不读它（判定每次从库内数据现算） |
 
-23120 会话建立方式与 zotero-read/zotero-save 相同：POST initialize → 响应头 `Mcp-Session-Id` → 后续请求带该头；响应 `content[].text` 是嵌套 JSON 字符串需二次 parse。
+MCP 会话建立方式与 zotero-read/zotero-save 相同（endpoint 见 `ZOTERO_MCP_URL`，完整 URL 已含 /mcp）：POST initialize → 响应头 `Mcp-Session-Id` → 后续请求带该头；响应 `content[].text` 是嵌套 JSON 字符串需二次 parse。
 
 ## 运行方式
 
@@ -134,7 +134,7 @@ python3 .../tagger.py add-tags <itemKey> 一作      # 或 通讯作者
 python3 .../tagger.py remove-tags <itemKey> 通讯作者   # 显式删除动作，主流程永不自动调
 ```
 
-脚本自己完成：连通检查（23119 ping + 23120 initialize，不通报错退出）→ 读映射 → 拉条目（父分类 + 子分类并集，按 key 去重，滤 attachment/note/annotation）→ 读现有 tags 跳过已带 → 判定 → `write_tag add`（每条目一次调用带上全部缺失标签）→ 写报告。agent 只负责跑脚本、解读报告、消化「待人工确认」清单。
+脚本自己完成：连通检查（HTTP ping + MCP initialize，不通报错退出）→ 读映射 → 拉条目（父分类 + 子分类并集，按 key 去重，滤 attachment/note/annotation）→ 读现有 tags 跳过已带 → 判定 → `write_tag add`（每条目一次调用带上全部缺失标签）→ 写报告。agent 只负责跑脚本、解读报告、消化「待人工确认」清单。
 
 ## 幂等与重跑语义
 
