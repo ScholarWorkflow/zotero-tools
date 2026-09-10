@@ -28,6 +28,7 @@ Zotero **分类树**的唯一实现地。它只负责三件事，其余一律不
 
 ```bash
 ZOTERO_MCP_URL="${ZOTERO_MCP_URL:-http://127.0.0.1:23120/mcp}" # 完整 MCP endpoint(已含 /mcp)
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL%/}"                           # 契约:去掉尾部斜杠
 HDR=$(mktemp)
 curl -s -D "$HDR" -X POST "$ZOTERO_MCP_URL" \
   -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \

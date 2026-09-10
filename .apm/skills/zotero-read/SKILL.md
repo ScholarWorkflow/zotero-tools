@@ -38,7 +38,9 @@ Pipeline:
 
 ```bash
 ZOTERO_HTTP_URL="${ZOTERO_HTTP_URL:-http://127.0.0.1:23119}"   # Zotero 本地 HTTP API base
+ZOTERO_HTTP_URL="${ZOTERO_HTTP_URL%/}"                         # 契约:去掉尾部斜杠
 ZOTERO_MCP_URL="${ZOTERO_MCP_URL:-http://127.0.0.1:23120/mcp}" # 完整 MCP endpoint(已含 /mcp)
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL%/}"                           # 契约:去掉尾部斜杠
 curl -s --max-time 5 "$ZOTERO_HTTP_URL/connector/ping"   # 期望 "Zotero is running"
 curl -s -o /dev/null -w "%{http_code}" "$ZOTERO_MCP_URL" # 期望 4xx/200(有响应即通)
 ```
@@ -69,6 +71,7 @@ SID=$(bash "<skill_dir>/scripts/new-session.sh")
 
 ```bash
 ZOTERO_MCP_URL="${ZOTERO_MCP_URL:-http://127.0.0.1:23120/mcp}" # 完整 MCP endpoint(已含 /mcp)
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL%/}"                           # 契约:去掉尾部斜杠
 curl -s --max-time 60 -X POST "$ZOTERO_MCP_URL" \
   -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
   -H "Mcp-Session-Id: $SID" \
@@ -104,6 +107,7 @@ curl -s --max-time 60 -X POST "$ZOTERO_MCP_URL" \
 
 ```bash
 ZOTERO_MCP_URL="${ZOTERO_MCP_URL:-http://127.0.0.1:23120/mcp}" # 完整 MCP endpoint(已含 /mcp)
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL%/}"                           # 契约:去掉尾部斜杠
 curl -s --max-time 60 -X POST "$ZOTERO_MCP_URL" \
   -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
   -H "Mcp-Session-Id: $SID" \
