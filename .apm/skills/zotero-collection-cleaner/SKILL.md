@@ -41,13 +41,15 @@ SID=$(grep -i 'Mcp-Session-Id' "$HDR" | tr -d '\r' | awk '{print $2}')
 ```
 
 ```bash
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL:-http://127.0.0.1:23120/mcp}" # 完整 MCP endpoint(已含 /mcp)
+ZOTERO_MCP_URL="${ZOTERO_MCP_URL%/}"                           # 契约:去掉尾部斜杠
 curl -s --max-time 60 -X POST "$ZOTERO_MCP_URL" \
   -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
   -H "Mcp-Session-Id: $SID" \
   -d '{"jsonrpc":"2.0","id":N,"method":"tools/call","params":{"name":"<工具>","arguments":<JSON>}}'
 ```
 
-响应的 `content[].text` 是**嵌套 JSON 字符串**，需再 parse 一次。一次会话可复用 SID。
+每个 `bash` 代码块独立可执行：前两行的 endpoint resolution（default expansion + 去尾斜杠）必须完整复制，不得依赖前一个代码块留下的 shell 变量。响应的 `content[].text` 是**嵌套 JSON 字符串**，需再 parse 一次。一次会话可复用 SID。
 
 **用到的工具**：`get_collections {"recursive":true}`（全树快照，唯一事实源）、`get_collection_details {"collectionKey":K}`（`meta.numItems`/`meta.numCollections`，**重复组成员逐个查**，不做全树详情）、`get_collection_items`（迁条目用）、`add_items_to_collection`、`update_collection`、`delete_collection`。
 
