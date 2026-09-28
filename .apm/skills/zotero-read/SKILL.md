@@ -82,6 +82,21 @@ curl -s --max-time 60 -X POST "$ZOTERO_MCP_URL" \
 
 一次会话可连续复用(多条请求共用一个 SID);会话过期后重新运行本 skill 的 `scripts/new-session.sh`。
 
+## 导出条目为规范化输入文件(随 skill 部署的 helper)
+
+需要把库里条目的元数据+摘要落成 `paper-analysis-input` JSON 时,用随本 skill 部署的 `scripts/zotero_item_export.py`。它由同目录的 `new-session.sh` 建立会话、由同目录的 `item_export_core.py` 提供导出行为,**不需要安装 `zotero-tools` Python 包,也不依赖 PATH 上的 `zotero-item-export` 命令**。宿主取本 `SKILL.md` 的父目录作为 `<skill_dir>`,用绝对路径执行:
+
+```bash
+uv run "<skill_dir>/scripts/zotero_item_export.py" ITEMKEY01 --output paper.json
+uv run "<skill_dir>/scripts/zotero_item_export.py" AAAA1111 BBBB2222 --output-dir ./exports
+uv run "<skill_dir>/scripts/zotero_item_export.py" --item-key CCCC3333 --output-dir ./exports
+```
+
+- 只读:导出只调 `get_item_details` 与 `get_item_abstract`,绝不写 Zotero;一次调用建一个会话,批量复用。
+- 输出:每个条目一份规范化 JSON(原子写入);stdout 只有一行紧凑状态 JSON(`ok` / `partial` / `error`),失败条目在 `errors[]` 里给 item_key 与简要原因,正文不进 stdout。
+- `ZOTERO_MCP_URL` 按上面的完整 endpoint 契约解释(已含 `/mcp`,不再拼一次)。
+- 同目录的 `item_export_core.py` 是导出核心的部署副本,不要单独编辑,也不要由 consumer 修复缺失文件——缺失或损坏属于安装问题,应在上游 producer 仓库处理。
+
 ## 工具参考(只读工具,参数与返回)
 
 | 工具 | 用途 | 参数(JSON) | 返回(text 内 JSON) |
@@ -181,6 +196,7 @@ zotero://select/library/items/<key>
 - **默认 23120 不通**:Zotero 没开 / 插件未启用(Preferences → Zotero MCP Plugin → Enable Server)/ 端口被改(或 `ZOTERO_MCP_URL` 指向了不在线的 endpoint)
 - **initialize 无响应或超时**:插件内部出问题,重启插件服务
 - **`zotero-mcp-session: command not found`**:不要额外安装包来补这个命令;直接执行当前 skill 自带的 `scripts/new-session.sh`
+- **`zotero-item-export: command not found`**:同样不要为补这个命令去安装 `zotero-tools` Python 包;直接 `uv run` 当前 skill 自带的 `scripts/zotero_item_export.py`
 - **search_fulltext 报 "q (query) is required"**:参数名用 `q`
 - **get_annotations 报 required**:必须给 itemKey 或 annotationId(s)
 - **get_content 无附件内容**:该条目没有 PDF 附件(linkMode=1 才是已导入的;linked 文件可能未索引)
