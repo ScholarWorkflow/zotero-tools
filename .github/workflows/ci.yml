@@ -25,6 +25,8 @@ jobs:
           python-version: "3.12"
       - name: Sync locked environment
         run: uv sync --locked
+      - name: Check the deployed exporter copy is fresh
+        run: uv run python scripts/sync_deployed_exporter.py --check
       - name: Run deterministic tests
         run: uv run --with pytest==8.4.2 pytest -q
 
