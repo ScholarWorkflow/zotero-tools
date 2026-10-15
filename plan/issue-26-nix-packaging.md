@@ -198,14 +198,23 @@ test -s "$RUN/output/session-id.txt"
 
 执行前确认该URL确是授权fixture；URL形状断言不代替授权。检查输出是非空会话标识，真实安装命令进入随包new-session.sh，只发送initialize，不执行业务读写/删除。空ID或命令失败不算通过；不以help/路径存在替代。T5直接复用这次及help的输出与可写TMPDIR，不加store全量快照。
 
-源码兼容只在本次确实修改tagger/session资源根时执行：从同SHA源读取并使用其正常开发Python环境（已有固定pytest；不借机在线安装）。下面用干净进程环境不传任何Nix资源根变量，明确保留开发解释器需要的PATH/HOME和隔离endpoint；执行现有 `test/test_entrypoints.py::test_tagger_help_is_available_from_any_cwd` 的无副作用检查。session源码路径用同一已授权隔离endpoint执行原模块：
+源码兼容只在本次确实修改tagger/session资源根时执行：从同SHA源读取。源码pytest子项需要执行环境提供 `DEV_PYTHON`：已有 pytest、版本不低于 3.11 的开发解释器绝对路径；不在线安装依赖。适用时从本机已存在的测试开发环境取得该绝对路径并设置 `DEV_PYTHON`，不要用 `command -v python3` 代选。只在该子项适用时预检路径、Python版本及pytest可运行性。若缺少该路径或其预检失败，只将源码pytest子项记为“无法判断／环境待准备”，继续session源码检查和其他独立必测项。下面用干净进程环境不传任何Nix资源根变量，明确保留开发解释器需要的PATH/HOME和隔离endpoint；执行现有 `test/test_entrypoints.py::test_tagger_help_is_available_from_any_cwd` 的无副作用检查。session源码路径用同一已授权隔离endpoint执行原模块：
 
 ```bash
-# PYTHON指向已有Python环境；UV、PYTHON和UV_CACHE_DIR在5.1中设置。
+# PYTHON用于源码session入口；UV与缓存路径在5.1中设置。
 cd "$RUN/work"
-env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" UV_CACHE_DIR="$UV_CACHE_DIR" PYTHONDONTWRITEBYTECODE=1 \
-  PYTHONPATH="$SOURCE" "$UV" run --no-project --python "$PYTHON" -- python -m pytest -q -p no:cacheprovider \
-  "$SOURCE/test/test_entrypoints.py::test_tagger_help_is_available_from_any_cwd"
+if [ -n "${DEV_PYTHON:-}" ] && [ "${DEV_PYTHON#/}" != "$DEV_PYTHON" ] && [ -x "$DEV_PYTHON" ] && \
+  "$UV" run --no-project --python "$DEV_PYTHON" -- python -c \
+    'import sys; assert sys.version_info >= (3, 11); print(sys.version.split()[0])' \
+    > "$RUN/output/dev-python-version.txt" && \
+  "$UV" run --no-project --python "$DEV_PYTHON" -- python -m pytest --version \
+    > "$RUN/output/pytest-version.txt"; then
+  env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" UV_CACHE_DIR="$UV_CACHE_DIR" PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH="$SOURCE" "$UV" run --no-project --python "$DEV_PYTHON" -- python -m pytest -q -p no:cacheprovider \
+    "$SOURCE/test/test_entrypoints.py::test_tagger_help_is_available_from_any_cwd"
+else
+  echo 'Source pytest compatibility: unable to judge; provide an existing Python >=3.11 absolute path with pytest.' >&2
+fi
 env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" UV_CACHE_DIR="$UV_CACHE_DIR" PYTHONDONTWRITEBYTECODE=1 \
   ZOTERO_MCP_URL="$ZOTERO_MCP_URL" PYTHONPATH="$SOURCE" \
   "$UV" run --no-project --python "$PYTHON" -- python -m zotero_tools.session \
@@ -228,9 +237,10 @@ test -s "$RUN/output/source-session-id.txt"
 ### 5.6 本轮准备预检（2026-10-15）
 
 - 基础运行时可用：Nix 2.34.8；启用 `nix-command` 与 `flakes` 后，本地纯表达式求值成功。`uv` 为 0.12.22；通过 `uv run` 使用现有 Python 3.14.7，标准库 `tomllib` 可导入。当前主机为 Darwin arm64。此检查没有读取远端 flake，也没有验证包输出或构建。
-- 当前 PR head `2b55a5a403b19f1338e3ca33bb0b33d7121fa342` 只有计划文件，没有 Nix flake 或产品输出。因此暂时没有可填写的 `PRODUCER_SHA`，T1–T5 正式命令均未执行；不能据此判定产品通过或失败。`SHARED_SHA` 仍以实际实现锁定值为准，计划中的 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a` 只是接口基准。
+- 当时检查的 PR head `2b55a5a403b19f1338e3ca33bb0b33d7121fa342` 只有计划文件；当前 head `8cfaa600102f26ce8b9124cbb4c1455d7ebbcbeb` 仍只有计划文件，没有 Nix flake 或产品输出。因此暂时没有可填写的 `PRODUCER_SHA`，T1–T5 正式命令均未执行；不能据此判定产品通过或失败。`SHARED_SHA` 仍以实际实现锁定值为准，计划中的 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a` 只是接口基准。
 - T4 所需的已授权隔离回环 MCP fixture 及其 URL 尚未提供；没有启动 fixture，也没有连接 Zotero。源代码兼容检查仅在实现改动资源定位时适用，当前没有需要重跑的源代码检查。
 - 工作树自动载入了缓存开发环境，但 `nix-direnv` 无法在只读布局中刷新 gcroot。没有运行 `nix build`，所以这条提示尚不能说明它是否会阻碍正式构建；执行前应在获准的隔离目录按上方 recipe 再检查。
+- 本轮针对解释器选择作有限预检：`nix` 2.34.8、`uv` 0.12.22 可用；当前 shell 的 `python3` 为 3.14.7，但导入 `pytest` 失败，因此不能用它作为 `DEV_PYTHON`。`uv python list --only-installed` 因默认缓存目录权限不足而未能确认其他已安装解释器。尚未提供一个已安装 pytest、版本不低于 3.11 的开发解释器绝对路径；执行源码兼容步骤前须由执行环境提供该值。没有安装依赖，也没有运行正式测试。
 
 ## 6. 当前状态
 
