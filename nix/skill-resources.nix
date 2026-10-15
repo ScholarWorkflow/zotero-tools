@@ -20,7 +20,7 @@ pkgs.runCommand "zotero-skills-${builtins.concatStringsSep "-" skillNames}" {
 
   ${lib.optionalString (hasSkill "zotero-read") ''
     substituteInPlace "$out/skills/zotero-read/SKILL.md" \
-      --replace-fail 'uv run' '${python}/bin/python3.11' \
+      --replace-fail 'uv run' '${python}/bin/python3.12' \
       --replace-fail 'curl -' '${curl} -' \
       --replace-fail 'bash "<skill_dir>' '${bash} "<skill_dir>'
     substituteInPlace "$out/skills/zotero-read/scripts/new-session.sh" \
@@ -31,8 +31,8 @@ pkgs.runCommand "zotero-skills-${builtins.concatStringsSep "-" skillNames}" {
       --replace-fail 'tr -' '${coreutils}/tr -' \
       --replace-fail 'awk ' '${awk} '
     substituteInPlace "$out/skills/zotero-read/scripts/zotero_item_export.py" \
-      --replace-fail '#!/usr/bin/env python3' '#!${python}/bin/python3.11' \
-      --replace-fail 'uv run ' '${python}/bin/python3.11 ' \
+      --replace-fail '#!/usr/bin/env python3' '#!${python}/bin/python3.12' \
+      --replace-fail 'uv run ' '${python}/bin/python3.12 ' \
       --replace-fail '["bash",' '["${bash}",'
     substituteInPlace "$out/skills/zotero-read/scripts/item_export_core.py" \
       --replace-fail '"curl",' '"${curl}",'
@@ -49,7 +49,7 @@ pkgs.runCommand "zotero-skills-${builtins.concatStringsSep "-" skillNames}" {
 
   ${lib.optionalString (hasSkill "zotero-paper-tagger") ''
     substituteInPlace "$out/skills/zotero-paper-tagger/SKILL.md" \
-      --replace-fail 'python3 ' '${python}/bin/python3.11 '
+      --replace-fail 'python3 ' '${python}/bin/python3.12 '
     substituteInPlace "$out/skills/zotero-paper-tagger/scripts/corresp_extractor.py" \
       --replace-fail '["pdftotext",' '["${pdftotext}",'
   ''}

@@ -6,8 +6,8 @@
 }:
 
 let
-  python = pkgs.python311.withPackages (pythonPackages: [ pythonPackages.pymupdf ]);
-  sitePackages = "lib/python3.11/site-packages";
+  python = pkgs.python312.withPackages (pythonPackages: [ pythonPackages.pymupdf ]);
+  sitePackages = "lib/python3.12/site-packages";
 
   resources = import ./skill-resources.nix {
     inherit pkgs lib source python;
@@ -42,7 +42,7 @@ let
     export PYTHONPATH="${pythonApp}/${sitePackages}''${PYTHONPATH:+:$PYTHONPATH}"
     export ZOTERO_TOOLS_RESOURCE_ROOT="${resources}/skills"
     export PATH="${lib.makeBinPath runtimeTools}''${PATH:+:$PATH}"
-    exec "${python}/bin/python3.11" -m ${module} "$@"
+    exec "${python}/bin/python3.12" -m ${module} "$@"
   '';
 
   cliTagger = makeCli "zotero-paper-tagger" "zotero_tools.tagger";

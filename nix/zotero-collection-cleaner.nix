@@ -8,7 +8,7 @@
 let
   resources = import ./skill-resources.nix {
     inherit pkgs lib source;
-    python = pkgs.python311;
+    python = pkgs.python312;
     skillNames = [ "zotero-collection-cleaner" ];
   };
 
