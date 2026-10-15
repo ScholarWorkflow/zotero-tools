@@ -1,6 +1,6 @@
 # Issue #26：Zotero 日常工具与分类清理器的 Nix 独立打包执行计划
 
-- 计划版本：`issue26-plan-v2-2026-10-15`
+- 计划版本：`issue26-plan-v3-2026-10-15`
 - 需求版本：[Issue #26](https://github.com/ScholarWorkflow/zotero-tools/issues/26)，2026-10-15 初始正文；以及同日用户补充的现有配置保留与冲突显式处理要求。
 - 仓库基线：`ScholarWorkflow/zotero-tools@7c39f03f0d6010e3e4ce8e51f7fc8ba761ef58d8`，默认分支 `master`
 - 目标仓库：`ScholarWorkflow/zotero-tools`；所有正式实现继续提交到本计划所在拉取请求分支
@@ -84,7 +84,7 @@
 - 只检查本次实际映射的技能/角色目标，以及确需接入的配置键及其父级/全局继承值，不扫描无关资源。已有 APM、其他 roots 或用户提供的目标定义相同且可复用时，保留并复用，无需额外确认且不认领所有权；定义不同或实际目标冲突时，报告具体来源并保持现状，由用户明确保留原来源或切换后再继续该项，不依赖加载优先级静默遮蔽或覆盖。
 - 升级/卸载只更新或移除现有接入方式能够确认由本包管理、且仍与上次生成内容一致的项或链接。用户编辑过、来源不明、其他包所有的内容保留并报告；无法安全区分时停止该项交给使用方，不删除整份配置或共享目录。日常包与 cleaner 的独立选择及原有 APM 安装语义保持。
 
-本次修订仅影响 2.4 和第 4 步所指的接入所有权、冲突与生命周期，相关 P1–P4 决定保持 `Proposed review status: pending`，不继承旧批准。包划分、角色保护、运行时秘密处理和第五节必测清单不变。受影响行为的观察入口是接入后的必要资源/配置项与冲突提示；检查或复验仍由测试负责人按 Test Engineer Rule 处理，不新增测试项或关卡。
+先前 v2 修订仅影响 2.4 和第 4 步的接入所有权、冲突与生命周期。本次 v3 依照用户对测试审核意见的处理决定，仅补齐第五节 T3 的角色正文比对、T4 的受控会话入口与原源码路径兼容检查；既有 T1–T5 业务目标及数量不变，T5 不新增依赖获取取证。包划分、角色保护、运行时秘密处理不变；相关 P1–P4 决定保持 `Proposed review status: pending`，不继承旧批准。检查或复验按 Test Engineer Rule 处理，不新增测试关口。
 
 ## 三、实施顺序（本地代理逐项完成）
 
@@ -156,8 +156,8 @@
 |---|---|---|---|
 | T1 | 从当前 PR 的待测固定 SHA 构建 `zotero-tools` | Nix 成功生成固定输出，包含日常三技能完整目录、schema/helpers、Python 模块、三个 CLI；不含 cleaner | 对该 SHA 的 `nix build` 与输出文件检查 |
 | T2 | 同一 SHA 独立构建 `zotero-collection-cleaner` | Nix 成功生成输出，仅包含对应技能及两宿主角色；无必须先安装日常包或研究仓库的要求 | `nix build` 与输出资源检查 |
-| T3 | 用受支持的 Nix profile 安装两个包各自的输出，检查 Codex/OpenCode 资源 | Codex 角色为合法 TOML 且含准确三字段；OpenCode 角色与源正文约定一致；资源位于约定输出路径，可由现有宿主接入方式映射；包已安装不冒充运行时发现 | Nix profile 文件、角色解析、资源位置直接检查 |
-| T4 | 从仓库外临时目录调用日常包的无副作用入口 | `zotero-paper-tagger --help` 和 `zotero-item-export --help` 由固定环境成功返回帮助；`zotero-mcp-session` 可定位其固定 session helper，但不需联网建会话；不存在运行时拉包 | 真实安装命令文件、可用帮助及 helper 路径检查 |
+| T3 | 用受支持的 Nix profile 安装两个包各自的输出，检查 Codex/OpenCode 资源 | Codex 角色是合法 TOML，仅含 `name`、`description`、`developer_instructions`；字段值分别与同一待测 SHA 的原始角色名称、描述、正文一致；OpenCode 角色与同一源角色文件逐字节一致；资源位于约定路径，可由现有宿主接入方式映射；安装不冒充运行时发现 | 检查实际 Nix 安装产物；用 Python `tomllib` 解析 Codex TOML，按既有 `test/test_apm_codex_projection.py`、`test/test_apm_opencode_projection.py` 的比较规则直接对照同一 SHA 的源文件，不用 APM 的通过结果代替 Nix 产物检查 |
+| T4 | 从仓库外临时目录检查日常包三个命令入口，以及本次路径适配影响的原源码运行方式 | `zotero-paper-tagger --help` 和 `zotero-item-export --help` 从实际安装命令成功返回；`zotero-mcp-session` 通过实际安装命令调用随包提供的 `new-session.sh`，仅向获授权的隔离测试端点发初始化请求并取得测试会话标识；未设置 Nix 资源根时 `tagger.py`、`session.py` 仍能按原 `.apm/skills` 路径找到相应资源；不连接真实 Zotero、不发生业务写入或运行时拉包 | 两个已安装帮助入口；在已授权、独占的回环测试端点下检查第三个已安装入口；对本次确实改动的源码路径复用 `test/test_entrypoints.py`、`test/test_endpoint_transport.py` 的相应无副作用检查，不执行无关回归 |
 | T5 | 在只读 store/隔离可写目录的安装检查环境中访问已交付资源 | 所需脚本与固定工具可从产物定位；准备或帮助检查不写入 store、不接触真实 Zotero 数据；只装日常包时没有 cleaner 的可见资源 | 只读安装输出与隔离运行目录检查 |
 
 上述各项只使用一个足以判断的入口，不重复为每项叠加测试层；不启动真正的清理、不写标签、不用真实收藏库、不要求 Codex/OpenCode 模型调用，不建立新 judge 或证据采集平台。当前仓库已有测试可以复用未受影响的既有通过记录；只有被实现修改触及的检查才补执行。
@@ -167,9 +167,10 @@
 1. 从本 PR 的**实际远端待测 SHA** 使用 Nix 正常获取源并构建两个属性；开发预检允许在工作树定位语法错误，但正式安装证据以远端固定 SHA 为准。记录 SHA、Nix/Nixpkgs 版本、平台和使用的命令。不得从生产 repo 的工作树直接复制、可编辑安装或补丁修消费者。
 2. 在仓库及其 worktree 外新建一次性 `/tmp/issue26-nix-<run-id>/`，分别设 `HOME`、`XDG_CACHE_HOME`、`XDG_STATE_HOME`、`TMPDIR` 及两个测试安装 profile 路径，使用 Nix 自带的 profile/install 入口或已经支持的项目接入方式。不要复用用户 Zotero profile、真实数据库或访问凭据。
 3. 构建命令形状：`nix build "github:ScholarWorkflow/zotero-tools/<SHA>#zotero-tools" --no-link` 和相同来源的 `#zotero-collection-cleaner`；记录输出 store 路径。安装命令形状：`nix profile install --profile "<tmp>/profile-tools" "github:ScholarWorkflow/zotero-tools/<SHA>#zotero-tools"`，cleaner 使用独立 profile。需要检查宿主映射时仅沿用已支持的接入方式，不手工修改消费者结果。
-4. 检查 `share/scholarworkflow` 下实际文件和两个角色文件格式；只调用能在离线状态完成的帮助入口，验证 Python 包可导入、脚本可定位、所用工具存在。`zotero-mcp-session` 是建立真实 MCP 会话的命令，不以 `--help` 当作其有效测试，也不为安装验证要求连通 Zotero。
-5. 记录 T1–T5 对应的通过、业务失败、无法判断或未执行及必要错误输出。对因 Nix 缓存、下载或外部环境导致的失败做最小诊断，现有依赖已不可用则停止受影响项，不把环境故障记为产品失败；在同一条件下不超过一次额外重试，业务断言失败不重试刷通过。
-6. 临时配置、环境输出、日志与运行产物保留在上述 `/tmp` 目录，仓库中只保存必要且脱敏的简短正式测试结果。计划执行与任何更改记录更新本文；未受影响历史测试无需因 SHA 变化而一律重跑。
+4. 检查 `share/scholarworkflow` 下的实际文件和角色：以同一待测 SHA 的 `.apm/agents/zotero-collection-cleaner.agent.md` 为原始依据，解析安装的 Codex TOML 并比较三字段与对应源内容；安装的 OpenCode Markdown 与源角色文件逐字节比较。然后从仓库外调用已安装的 `zotero-paper-tagger --help`、`zotero-item-export --help`，确认 Python 包可导入、脚本可定位、固定工具可用。`zotero-mcp-session` 必须从已安装的真实命令进入 `new-session.sh`：仅在本轮确有权限使用的隔离测试端点已可用时，显式将 `ZOTERO_MCP_URL` 设为该端点完整的 `http://127.0.0.1:<独占测试端口>/mcp`，只发送初始化请求并检查测试会话标识；执行前确认地址属于本轮隔离端点，禁止使用默认真实 Zotero 地址、用户凭据或修改收藏，禁止借此新增未经批准的专用测试服务。端点或使用授权缺失时仅将 T4 该部分记为无法判断并暂停，其他检查照常完成，不以 `--help` 或路径存在冒充会话命令通过。对本次改动的源码入口，用未设置 Nix 资源根的方式复用 `test/test_entrypoints.py`、`test/test_endpoint_transport.py` 已有无副作用检查，核对旧 `.apm/skills` 路径可用；无影响部分不重复运行。
+5. 权限边界参照 [skills-test-fixtures PR #43](https://github.com/RekiDunois/skills-test-fixtures/pull/43)：本次 T4 是本地命令安装检查，不要求启动 Codex、不读取或修改其全局信任配置，也不因无法证明预先信任而增加预检。若后续实际通过 Codex 宿主检查资源接入，只能在已授权的隔离消费者和既有评估服务中使用该文档对应的运行时启动方式，由运行时遵守原有审批和安全限制；不能把该文档视为访问真实 Zotero、改变信任策略或绕过权限的授权。
+6. 记录 T1–T5 对应的通过、业务失败、无法判断或未执行及必要错误输出。对因 Nix 缓存、下载或外部环境导致的失败做最小诊断，现有依赖已不可用则停止受影响项，不把环境故障记为产品失败；在同一条件下不超过一次额外重试，业务断言失败不重试刷通过。
+7. 临时配置、环境输出、日志与运行产物保留在上述 `/tmp` 目录，仓库中只保存必要且脱敏的简短正式测试结果。计划执行与任何更改记录更新本文；未受影响历史测试无需因 SHA 变化而一律重跑。
 
 **测试执行状态**：T1–T5 **未执行**；没有构建通过、安装通过或模型运行通过的声明。测试第一关/第二关由获授权人员按项目规则审核，第三关须在实现后的实际版本上取得有效结果。
 
