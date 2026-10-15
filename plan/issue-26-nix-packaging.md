@@ -7,6 +7,12 @@
 - Implementation revision：`ae4b9d411589cea8728ae371787196c894f0d642`。正式实施结果及 T1–T5 记录见 §5.7；实现符合性复核结论为部分完成，见 §6。
 - 规则：[Project Consensus](https://app.notion.com/p/rekidunois/Project-Consensus-3d60101a85f3815a8c43f271f2b4d91d)、[Plan Reviewer Rule](https://app.notion.com/p/rekidunois/Plan-Reviewer-Rule-3e80101a85f3817a94cbc6eca1a76a5c)、[Test Engineer Rule](https://app.notion.com/p/rekidunois/Test-Engineer-Rule-3d80101a85f380d8a8f5ce528141e253)。引用不新增本计划之外的测试。
 
+## 本轮平台与审核边界（2026-10-15 18:00 UTC）
+
+首批支持与验收仅限 `aarch64-darwin`。Linux 不在本轮支持承诺、必测范围或合并前置内；不新增跨平台矩阵。既有 Linux 结果如有则保留为历史记录，不能替代 Mac 验收证据；已有且未受影响的 Mac PASS 直接复用，不因本次文档修订重复执行。
+
+本轮仅对平台范围修订作定向复核；未受影响的既有计划审核结论与测试结果继续沿用，不要求全量重审。MCP 初始化仍仅限原清单，不能借本次平台修订扩大验证范围。
+
 ## 1. 方案、依据与边界
 
 需求是日常工具与破坏性 cleaner 分开、完整资源、固定依赖、原有角色确认和 APM 行为保留。当前 Python tagger/session 按模块目录向上查找 `.apm/skills`，进入 Nix Python 库后不能自然成立，技能也仍使用 uv/shell/PDF 命令。因此 producer 负责固定运行包、资源根和必要 Nix 调用适配，共享层负责声明式包、组合、复制和 Codex 角色/配置保护。仅复制 SKILL.md、给所有功能一个默认大包、每仓再建安装器均不满足这一职责分离。
@@ -22,7 +28,7 @@
 
 ### 2.1 包声明与选择
 
-新增 flake.nix/flake.lock、nix/，共享 input 固定上述 SHA 与实际 nixpkgs/平台。共享仓访问使用现有 Nix/Git 认证，不将 token 写进声明。仅对实际验证平台声明可消费。
+新增 flake.nix/flake.lock、nix/，共享 input 固定上述 SHA 与实际 nixpkgs/平台。共享仓访问使用现有 Nix/Git 认证，不将 token 写进声明。首批仅对 `aarch64-darwin` 声明可消费。
 
 - `packages.<system>.zotero-tools`：共享 mkAgentPackage 结果，exports.skills 为 zotero-read、zotero-collections、zotero-paper-tagger；files 包含完整目录、scripts/schema 及所需附属资源；runtimePackages 引用固定 Python 应用与所需 shell/PDF 工具。无 cleaner export 或强制依赖。
 - `packages.<system>.zotero-collection-cleaner`：独立 mkAgentPackage，完整 cleaner 技能，exports.agents.zotero-collection-cleaner 的 description/developer_instructions 来自同一源角色的既有 Codex variant；共享层生成 name/TOML。不另写 Codex 序列化器，不把 OpenCode permission/hidden/question 当权限字段。
@@ -71,12 +77,12 @@
 
 ### 5.1 准备参数与正式共享入口
 
-以下是实施后的执行 recipe，本次只写计划，不执行。执行者从待测实现填入 `PRODUCER_SHA`、`SYSTEM`（例如 aarch64-darwin 或 x86_64-linux）；当前文档提交没有 Nix 产品，不得拿它运行后报产品失败。`SHARED_SHA` 使用 producer 实际锁定的共享实现，本文接口基准为 760c1bf60e8ec19d1985660ec5e3276a8ef80b5a；若仅文档提交更新，不因此重跑无影响结果。需要现成 Nix flakes、`uv`、Python >=3.11 和正常仓库读取权限，缺失只暂停相关项，不安装新的通用测试工具。
+以下是实施后的执行 recipe，本次平台修订不运行测试。执行者从待测实现填入 `PRODUCER_SHA`、`SYSTEM`（本轮固定 aarch64-darwin）；已有实施与结果见 §5.7；仅补仍未完成的既有项目。`SHARED_SHA` 使用 producer 实际锁定的共享实现，本文接口基准为 760c1bf60e8ec19d1985660ec5e3276a8ef80b5a；若仅文档提交更新，不因此重跑无影响结果。需要现成 Nix flakes、`uv`、Python >=3.11 和正常仓库读取权限，缺失只暂停相关项，不安装新的通用测试工具。
 
 ```bash
 set -euo pipefail
 export PRODUCER_SHA='<待测实现的远端40位SHA>'
-export SYSTEM='<已支持的平台>'
+export SYSTEM=aarch64-darwin
 export SHARED_SHA=760c1bf60e8ec19d1985660ec5e3276a8ef80b5a
 export REPO='ScholarWorkflow/zotero-tools'
 export REF="github:$REPO/$PRODUCER_SHA"
@@ -255,3 +261,4 @@ test -s "$RUN/output/source-session-id.txt"
 ## 6. 当前状态
 
 v4 已实施并推送至 PR 分支。T1 通过，T2–T5 的部分结果与环境限制见 §5.7。实现符合性复核（2026-10-16）结论为部分完成：已核对完整计划、flake 与锁文件、两包声明、资源改写、资源定位、README 和源角色；未发现具体实现偏差。cleaner 独立消费者的 apply 结果缺失，T2/T3 必测结果尚未齐备；隔离 endpoint 初始化和源码 pytest 也未验证。该复核不代表第三关或合并批准。
+
