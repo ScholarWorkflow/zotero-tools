@@ -59,24 +59,172 @@
 
 ## 5. 唯一最小测试计划
 
-当前全部未执行，正式步骤/结果依 Test Engineer Rule 审核。只改现有 T1–T5 的接口和 Nix 宿主范围，不新增通用库测试或业务认证。
+测试修订：test-v4.1（2026-10-15），完整替换原测试步骤。实现方案v4不变，不因本次文档SHA重开未受影响P1–P4。当前未执行，不声明测试通过。T1–T5是范围上限，重复观察合并，不把共享库的通用安装/配置/依赖图回归复制到本仓。
 
-| 项 | 输入/场景 | 预期及唯一检查入口 |
+| 项 | 输入/场景 | 预期与检查方法 |
 |---|---|---|
-| T1 日常构建 | 固定远端 producer SHA 的 zotero-tools | nix build 成功；三完整技能/schema/helpers、Python 模块、三个可安装 CLI 存在；不含 cleaner |
-| T2 独立 cleaner | 同 SHA 的 cleaner 输出 | 独立构建，技能与 Codex 角色完整；没有无依据的日常/研究强制依赖 |
-| T3 共享正式接入与角色 | 仓库外隔离消费者，分别以两包为 roots，通过共享 mkProject/apply | 两包各自资源可发现位置正确；Codex TOML 三字段与同一 SHA 的源角色既有 Codex 描述/正文一致；用现有 test_apm_codex_projection.py 对应比较规则及 tomllib 检查实际 Nix 产物。不另测 OpenCode Nix 产物或共享通用复制/配置算法 |
-| T4 三命令与源码兼容 | profile 安装真实包，从仓库外运行；本次触及的源码路径 | tagger --help、item-export --help 成功；mcp-session 从实际 CLI 经随包 new-session.sh，仅向获授权隔离回环 endpoint 初始化并取得会话标识。无 Nix 资源根时旧源码定位保留；只复用 test_entrypoints.py/test_endpoint_transport.py 受影响检查 |
-| T5 固定工具与状态 | 已安装资源、只读 store、隔离可写目录 | 固定脚本与实际工具可用，准备/帮助不写 store、不触真实 Zotero；日常单独选择没有 cleaner。与 T1/T3/T4 的已有观察合并记录，不增加第二套检查 |
+| T1 日常构建 | 固定实现SHA的zotero-tools | 构建成功；三完整技能、helpers/schema、Python模块、三个可安装CLI；不含cleaner |
+| T2 独立cleaner | 同SHA的cleaner单root | 构建与共享部署成功；只带声明技能/角色，没有无依据的日常/研究依赖 |
+| T3 角色与接入 | 两个独立consumer，经共享mkProject/apply | 实际Codex发现位置正确，角色三字段与同SHA源名称/描述/正文一致；不另测OpenCode Nix产物/通用投影算法 |
+| T4 实际入口 | profile安装三CLI、隔离端点；受影响原源码路径 | 两help成功；真实mcp-session入口初始化获会话ID；无Nix资源根时原源码定位保留 |
+| T5 工具与状态 | 复用上面安装和调用 | 固定工具/资源可用，不写store、不接触真实Zotero；日常无cleaner。合并T1/T3/T4观察，不再加独立测试层 |
 
-准备：使用实际远端 producer SHA 与锁定共享 SHA，经正式 nix build/profile install；在仓库和 worktree 外 `/tmp/issue26-nix-<run-id>` 设置独占 HOME/XDG_CACHE_HOME/XDG_STATE_HOME/TMPDIR 和安装 profiles，通过 README 的共享组合/apply 示例准备消费者。不能手工复制源文件、editable install、临时软链或消费者补丁冒充安装。
+### 5.1 准备参数与正式共享入口
 
-执行工程师在本文件补齐实现后的准确命令与 runtime/resource 路径；T4 的 ZOTERO_MCP_URL 必须是本轮获授权独占 `http://127.0.0.1:<port>/mcp`，不用默认真实服务/凭据，不发写入/删除。隔离端点或授权缺失时该部分无法判断，其他项继续，不能用 help 或文件存在替代 session 入口成功，也不新增未经批准测试服务。
+以下是实施后的执行 recipe，本次只写计划，不执行。执行者从待测实现填入 `PRODUCER_SHA`、`SYSTEM`（例如 aarch64-darwin 或 x86_64-linux）；当前文档提交没有 Nix 产品，不得拿它运行后报产品失败。`SHARED_SHA` 使用 producer 实际锁定的共享实现，本文接口基准为 760c1bf60e8ec19d1985660ec5e3276a8ef80b5a；若仅文档提交更新，不因此重跑无影响结果。需要现成 Nix flakes、Python >=3.11 和正常仓库读取权限，缺失只暂停相关项，不安装新的通用测试工具。
 
-[skills-test-fixtures PR #43](https://github.com/RekiDunois/skills-test-fixtures/pull/43) 仅约束实际需要的隔离配置/权限；不成为新预检/宿主认证，T4 不要求启动 Codex 或读取/修改其全局信任。若确实使用 Codex，只用已授权消费者与既有运行方式，不绕过原审批。
+```bash
+set -euo pipefail
+export PRODUCER_SHA='<待测实现的远端40位SHA>'
+export SYSTEM='<已支持的平台>'
+export SHARED_SHA=760c1bf60e8ec19d1985660ec5e3276a8ef80b5a
+export REPO='ScholarWorkflow/zotero-tools'
+export REF="github:$REPO/$PRODUCER_SHA"
+export RUN="$(mktemp -d /tmp/issue26-nix-XXXXXX)"
+mkdir -p "$RUN/compose" "$RUN/output" "$RUN/work" "$RUN/cache" "$RUN/state"
+export XDG_CACHE_HOME="$RUN/cache" XDG_STATE_HOME="$RUN/state" TMPDIR="$RUN/work"
+export SOURCE="$(nix eval --raw "$REF#outPath")"
+```
 
-最小诊断环境故障，同条件最多一次额外重试；断言失败不重试刷通过。临时结果留隔离目录，只在本文件记简短脱敏结果；未受影响旧有效结果可复用。不跑真实 cleaner、标签写入、真实库、模型认证或 judge，不新建证据采集平台。源 APM/OpenCode/uv 未受影响不重复验证。
+不修改 HOME/CODEX_HOME、用户信任或已有 eval 服务。消费者位于仓库/worktree 外，所选路径须已获准用于隔离运行。实际需要Codex时通过既有eval命令显式传入 `--sandbox workspace-write`；不读取或审核eval服务的Codex信任名单，不增设预先信任检查，也不修改全局信任。只有真实执行返回权限问题时，才按运行环境结果处理。只记录实际 SHA、consumer 路径、安装命令和结果位置，不额外制作来源 manifest、hash 链或全环境快照。
+
+下面的 `flake.nix` 是消费者配置，不是安装脚本；`ROOTS_NIX` 按后续各项明确选择。本例直接调用共享库，不建立本仓 consumer-view、复制器或配置合并器。
+
+```bash
+export ROOTS_NIX='[ p.zotero-tools ]'
+cat > "$RUN/compose/flake.nix" <<EOF_NIX
+{
+  inputs.producer.url = "$REF";
+  inputs.shared.url = "github:RekiDunois/agent-env-nix/$SHARED_SHA";
+  inputs.shared.inputs.nixpkgs.follows = "producer/nixpkgs";
+  outputs = { producer, shared, ... }: let
+    pkgs = producer.inputs.nixpkgs.legacyPackages."$SYSTEM";
+    p = producer.packages."$SYSTEM";
+  in { packages."$SYSTEM".default = shared.lib.mkProject {
+    inherit pkgs; roots = $ROOTS_NIX;
+  }; };
+}
+EOF_NIX
+export ENV_OUT="$(nix build "path:$RUN/compose#default" --no-link --print-out-paths)"
+export CONSUMER="$RUN/consumer"
+mkdir -p "$CONSUMER"
+"$ENV_OUT/bin/agent-env" apply --project "$CONSUMER"
+```
+
+后续改 roots 时只替换这个配置中的 roots 表达式，并通过同一 build/apply 入口部署到该项目；这是获批组合输入变化，不手改生成资源。需要独立选择断言时使用新的具名 consumer，其他项复用已有安装。不运行共享库 flake check/通用回归，也不在本仓重测共享配置冲突、并发、升级/卸载、GC、override 矩阵。
+
+### 5.2 T1 / T2：构建及独立安装
+
+首次 `ROOTS_NIX='[ p.zotero-tools ]'`。准备之后分别构建两个包，并通过正式profile入口保留日常三个CLI：
+
+```bash
+export TOOLS_OUT="$(nix build "$REF#zotero-tools" --no-link --print-out-paths)"
+export CLEANER_OUT="$(nix build "$REF#zotero-collection-cleaner" --no-link --print-out-paths)"
+nix profile install --profile "$RUN/profile-tools" "$REF#zotero-tools"
+export TOOLS_CONSUMER="$CONSUMER"
+find "$TOOLS_OUT/payload" -type f -print > "$RUN/output/tools-files.txt"
+for name in zotero-paper-tagger zotero-mcp-session zotero-item-export; do
+  test -x "$RUN/profile-tools/bin/$name" || exit 1
+done
+```
+
+查看已声明payload的资源清单，要求三完整技能、zotero-read的new-session.sh/zotero_item_export.py/item_export_core.py、tagger三个helpers和CORRESPONDENCE_SCHEMA.md完整；Nix允许改写的调用说明/解释器不要求与源逐字相等。不要重做闭包来源认证或运行时下载追踪。
+
+将5.1配置的roots仅替换为 `[ p.zotero-collection-cleaner ]`，运行：
+
+```bash
+export CLEANER_ENV="$(nix build "path:$RUN/compose#default" --no-link --print-out-paths)"
+export CLEANER_CONSUMER="$RUN/consumer-cleaner"
+mkdir -p "$CLEANER_CONSUMER"
+"$CLEANER_ENV/bin/agent-env" apply --project "$CLEANER_CONSUMER"
+```
+
+这是第二包的独立选择，不是重复安装同一环境。default日常入口保持独立，不用聚合两包后猜cleaner是否默认带入。
+
+### 5.3 T3 / T5：资源与源角色对照
+
+下面直接读取本次正式安装文件及同SHA只读源；只做目标字段/资源断言，不调用APM转换，不运行整套projection测试，也不新增比较工具文件。
+
+```bash
+python3 - "$TOOLS_CONSUMER" "$CLEANER_CONSUMER" "$SOURCE" <<'PY'
+import pathlib,sys,tomllib
+regular,cleaner,source=map(pathlib.Path,sys.argv[1:])
+for name in ('zotero-read','zotero-collections','zotero-paper-tagger'):
+    path=regular/'.agents/skills'/name
+    assert path.is_dir() and not path.is_symlink()
+    assert (path/'SKILL.md').is_file()
+assert not (regular/'.agents/skills/zotero-collection-cleaner').exists()
+assert not (regular/'.codex/agents/zotero-collection-cleaner.toml').exists()
+assert (cleaner/'.agents/skills/zotero-collection-cleaner/SKILL.md').is_file()
+assert not (cleaner/'.agents/skills/zotero-paper-tagger').exists()
+a=tomllib.loads((cleaner/'.codex/agents/zotero-collection-cleaner.toml').read_text())
+lines=(source/'.apm/agents/zotero-collection-cleaner.agent.md').read_text().splitlines()
+end=lines.index('---',1)
+desc=next(s.split(':',1)[1].strip() for s in lines[1:end] if s.startswith('description:'))
+assert len(desc)>=2 and desc[0]==desc[-1] and desc[0] in ('"',"'")
+assert set(a)=={'name','description','developer_instructions'}
+assert a['name']=='zotero-collection-cleaner'
+assert a['description']==desc[1:-1]
+assert a['developer_instructions'].strip()=='\n'.join(lines[end+1:]).strip()
+print('T3: installed resources and canonical role match')
+PY
+```
+
+该源字段方法沿用当前 `test/apm_projection.py` 的已有比较规则；若实现时源角色格式确实改变，先修订这条比较方法，不靠APM通过结果替代Nix产物，也不把格式变化升级为业务/宿主认证。
+
+### 5.4 T4：三个真实CLI与源码兼容
+
+前两个命令从仓库外执行，输出应为原help且exit 0，成功同时确认其所用Python模块可加载与资源入口可用：
+
+```bash
+cd "$RUN/work"
+"$RUN/profile-tools/bin/zotero-paper-tagger" --help > "$RUN/output/tagger-help.txt"
+"$RUN/profile-tools/bin/zotero-item-export" --help > "$RUN/output/export-help.txt"
+```
+
+第三个命令必须使用已经获授权的独占隔离回环MCP endpoint。执行者提供完整URL，记录它属于哪个现有隔离fixture即可；无需重复fixture来源/身份认证，不新建测试服务，不用默认真实Zotero。端点及权限缺失时只将此子项记无法判断。
+
+```bash
+export ZOTERO_MCP_URL='http://127.0.0.1:<本轮隔离端口>/mcp'
+python3 - "$ZOTERO_MCP_URL" <<'PY'
+import sys,urllib.parse
+u=urllib.parse.urlsplit(sys.argv[1])
+assert u.scheme=='http' and u.hostname=='127.0.0.1' and u.port and u.path=='/mcp'
+PY
+"$RUN/profile-tools/bin/zotero-mcp-session" > "$RUN/output/session-id.txt"
+test -s "$RUN/output/session-id.txt"
+```
+
+执行前确认该URL确是授权fixture；URL形状断言不代替授权。检查输出是非空会话标识，真实安装命令进入随包new-session.sh，只发送initialize，不执行业务读写/删除。空ID或命令失败不算通过；不以help/路径存在替代。T5直接复用这次及help的输出与可写TMPDIR，不加store全量快照。
+
+源码兼容只在本次确实修改tagger/session资源根时执行：从同SHA源读取并使用其正常开发Python环境（已有固定pytest；不借机在线安装）。下面用干净进程环境不传任何Nix资源根变量，明确保留开发解释器需要的PATH/HOME和隔离endpoint；执行现有 `test/test_entrypoints.py::test_tagger_help_is_available_from_any_cwd` 的无副作用检查。session源码路径用同一已授权隔离endpoint执行原模块：
+
+```bash
+# PYTHON为已有开发环境的绝对Python入口，包含本项目既有测试依赖。
+export PYTHON='<已有开发Python绝对路径>'
+cd "$RUN/work"
+env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" PYTHONDONTWRITEBYTECODE=1 \
+  PYTHONPATH="$SOURCE" "$PYTHON" -m pytest -q -p no:cacheprovider \
+  "$SOURCE/test/test_entrypoints.py::test_tagger_help_is_available_from_any_cwd"
+env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" PYTHONDONTWRITEBYTECODE=1 \
+  ZOTERO_MCP_URL="$ZOTERO_MCP_URL" PYTHONPATH="$SOURCE" \
+  "$PYTHON" -m zotero_tools.session \
+  > "$RUN/output/source-session-id.txt"
+test -s "$RUN/output/source-session-id.txt"
+```
+
+仅当该源码兼容行为受实现影响才运行，endpoint沿用上一个隔离fixture；源未改注明复用。这里的PYTHONPATH只用于既有源码兼容目标，不能用于安装CLI或修补消费者。无已备开发环境只阻塞对应兼容检查，不能用全套APM/endpoint测试替代。
+
+### 5.5 权限、失败、清理和结果
+
+[skills-test-fixtures PR #43](https://github.com/RekiDunois/skills-test-fixtures/pull/43) 只在实际使用既有fixture时约束隔离权限，不额外引入manifest/hash/信任来源/调用树检查。本计划无需启动Codex/OpenCode，无需读改全局信任。角色接入由正式安装文件判断，不要求模型调用cleaner。
+
+缺Nix/依赖/端点/权限时仅相关项无法判断，其他独立项继续。环境错误最小诊断，同条件最多一次额外重试；产品断言失败不刷重试。必要输出留RUN，正式文件记T1–T5结果、未完成原因与复用记录，不新建证据平台。不调用真实Zotero、不实际清理/标签写入。
+
+收尾可用两个各自环境的 `agent-env remove --project` 移除本次托管资源，解除临时profile引用后保留输出供复核；这只是清理，不新增共享生命周期验收。不终止外部负责人提供的fixture，不按进程名杀进程。源码/APM/OpenCode/uv未受影响的既有结果继续有效。
+
+2026-10-15 独立计划复核已完成：test-v4.1 第一关口（范围）与第二关口（步骤）通过，覆盖本节完整recipe及引用边界；第三关必须等待实施后的真实结果，当前未执行。
 
 ## 6. 当前状态
 
-v4 已用共享 mkAgentPackage/mkProject 替换旧 share 布局和每仓接入说明，保留包特有 Python/CLI/资源与角色适配。计划审核、测试审核仍 pending；没有实现或测试通过结论。完成条件是两独立可固定包、共享接入、三个 CLI 和源兼容有效、角色正文保持、外部前提如实记录及 T1–T5 最小结果齐备。
+v4 已用共享 mkAgentPackage/mkProject 替换旧 share 布局和每仓接入说明，保留包特有 Python/CLI/资源与角色适配。实现方案审核仍 pending；测试修订 test-v4.1 的独立计划复核已完成，第一/第二关口通过，第三关未执行；没有实现或测试结果通过结论。完成条件是两独立可固定包、共享接入、三个 CLI 和源兼容有效、角色正文保持、外部前提如实记录及 T1–T5 最小结果齐备。
