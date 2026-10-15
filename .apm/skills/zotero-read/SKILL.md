@@ -1,6 +1,6 @@
 ---
 name: zotero-read
-description: Read and search literature stored in the local Zotero library — browse collection trees, search by metadata / full-text / annotations, deep-read individual papers (metadata + abstract + PDF full text + notes + highlights) — and answer the user's questions with citations. Read-only, no API key, all via curl to the local zotero-mcp plugin (default 127.0.0.1:23120/mcp, override with ZOTERO_MCP_URL). Use when the user asks to find, summarize, explain, or quote papers stored in Zotero (e.g. "在Zotero里找关于X的文献", "帮我讲讲库里这篇论文", "哪些论文提到了Y概念"). Complement to zotero-save: zotero-save WRITES (search & import), this skill only READS.
+description: 'Read and search literature stored in the local Zotero library — browse collection trees, search by metadata / full-text / annotations, deep-read individual papers (metadata + abstract + PDF full text + notes + highlights) — and answer the user''s questions with citations. Read-only, no API key, all via curl to the local zotero-mcp plugin (default 127.0.0.1:23120/mcp, override with ZOTERO_MCP_URL). Use when the user asks to find, summarize, explain, or quote papers stored in Zotero (e.g. "在Zotero里找关于X的文献", "帮我讲讲库里这篇论文", "哪些论文提到了Y概念"). Complement to zotero-save: zotero-save WRITES (search & import), this skill only READS.'
 ---
 
 # Skill: zotero-read
