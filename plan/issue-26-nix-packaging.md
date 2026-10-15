@@ -71,7 +71,7 @@
 
 ### 5.1 准备参数与正式共享入口
 
-以下是实施后的执行 recipe，本次只写计划，不执行。执行者从待测实现填入 `PRODUCER_SHA`、`SYSTEM`（例如 aarch64-darwin 或 x86_64-linux）；当前文档提交没有 Nix 产品，不得拿它运行后报产品失败。`SHARED_SHA` 使用 producer 实际锁定的共享实现，本文接口基准为 760c1bf60e8ec19d1985660ec5e3276a8ef80b5a；若仅文档提交更新，不因此重跑无影响结果。需要现成 Nix flakes、Python >=3.11 和正常仓库读取权限，缺失只暂停相关项，不安装新的通用测试工具。
+以下是实施后的执行 recipe，本次只写计划，不执行。执行者从待测实现填入 `PRODUCER_SHA`、`SYSTEM`（例如 aarch64-darwin 或 x86_64-linux）；当前文档提交没有 Nix 产品，不得拿它运行后报产品失败。`SHARED_SHA` 使用 producer 实际锁定的共享实现，本文接口基准为 760c1bf60e8ec19d1985660ec5e3276a8ef80b5a；若仅文档提交更新，不因此重跑无影响结果。需要现成 Nix flakes、`uv`、Python >=3.11 和正常仓库读取权限，缺失只暂停相关项，不安装新的通用测试工具。
 
 ```bash
 set -euo pipefail
@@ -83,6 +83,7 @@ export REF="github:$REPO/$PRODUCER_SHA"
 export RUN="$(mktemp -d /tmp/issue26-nix-XXXXXX)"
 mkdir -p "$RUN/compose" "$RUN/output" "$RUN/work" "$RUN/cache" "$RUN/state"
 export XDG_CACHE_HOME="$RUN/cache" XDG_STATE_HOME="$RUN/state" TMPDIR="$RUN/work"
+export UV="$(command -v uv)" PYTHON="$(command -v python3)" UV_CACHE_DIR="$RUN/cache/uv"
 export SOURCE="$(nix eval --raw "$REF#outPath")"
 ```
 
@@ -146,7 +147,7 @@ mkdir -p "$CLEANER_CONSUMER"
 下面直接读取本次正式安装文件及同SHA只读源；只做目标字段/资源断言，不调用APM转换，不运行整套projection测试，也不新增比较工具文件。
 
 ```bash
-python3 - "$TOOLS_CONSUMER" "$CLEANER_CONSUMER" "$SOURCE" <<'PY'
+"$UV" run --no-project --python "$PYTHON" - "$TOOLS_CONSUMER" "$CLEANER_CONSUMER" "$SOURCE" <<'PY'
 import pathlib,sys,tomllib
 regular,cleaner,source=map(pathlib.Path,sys.argv[1:])
 for name in ('zotero-read','zotero-collections','zotero-paper-tagger'):
@@ -186,7 +187,7 @@ cd "$RUN/work"
 
 ```bash
 export ZOTERO_MCP_URL='http://127.0.0.1:<本轮隔离端口>/mcp'
-python3 - "$ZOTERO_MCP_URL" <<'PY'
+"$UV" run --no-project --python "$PYTHON" - "$ZOTERO_MCP_URL" <<'PY'
 import sys,urllib.parse
 u=urllib.parse.urlsplit(sys.argv[1])
 assert u.scheme=='http' and u.hostname=='127.0.0.1' and u.port and u.path=='/mcp'
@@ -200,15 +201,14 @@ test -s "$RUN/output/session-id.txt"
 源码兼容只在本次确实修改tagger/session资源根时执行：从同SHA源读取并使用其正常开发Python环境（已有固定pytest；不借机在线安装）。下面用干净进程环境不传任何Nix资源根变量，明确保留开发解释器需要的PATH/HOME和隔离endpoint；执行现有 `test/test_entrypoints.py::test_tagger_help_is_available_from_any_cwd` 的无副作用检查。session源码路径用同一已授权隔离endpoint执行原模块：
 
 ```bash
-# PYTHON为已有开发环境的绝对Python入口，包含本项目既有测试依赖。
-export PYTHON='<已有开发Python绝对路径>'
+# PYTHON指向已有Python环境；UV、PYTHON和UV_CACHE_DIR在5.1中设置。
 cd "$RUN/work"
-env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" PYTHONDONTWRITEBYTECODE=1 \
-  PYTHONPATH="$SOURCE" "$PYTHON" -m pytest -q -p no:cacheprovider \
+env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" UV_CACHE_DIR="$UV_CACHE_DIR" PYTHONDONTWRITEBYTECODE=1 \
+  PYTHONPATH="$SOURCE" "$UV" run --no-project --python "$PYTHON" -- python -m pytest -q -p no:cacheprovider \
   "$SOURCE/test/test_entrypoints.py::test_tagger_help_is_available_from_any_cwd"
-env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" PYTHONDONTWRITEBYTECODE=1 \
+env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" UV_CACHE_DIR="$UV_CACHE_DIR" PYTHONDONTWRITEBYTECODE=1 \
   ZOTERO_MCP_URL="$ZOTERO_MCP_URL" PYTHONPATH="$SOURCE" \
-  "$PYTHON" -m zotero_tools.session \
+  "$UV" run --no-project --python "$PYTHON" -- python -m zotero_tools.session \
   > "$RUN/output/source-session-id.txt"
 test -s "$RUN/output/source-session-id.txt"
 ```
@@ -224,6 +224,13 @@ test -s "$RUN/output/source-session-id.txt"
 收尾可用两个各自环境的 `agent-env remove --project` 移除本次托管资源，解除临时profile引用后保留输出供复核；这只是清理，不新增共享生命周期验收。不终止外部负责人提供的fixture，不按进程名杀进程。源码/APM/OpenCode/uv未受影响的既有结果继续有效。
 
 2026-10-15 独立计划复核已完成：test-v4.1 第一关口（范围）与第二关口（步骤）通过，覆盖本节完整recipe及引用边界；第三关必须等待实施后的真实结果，当前未执行。
+
+### 5.6 本轮准备预检（2026-10-15）
+
+- 基础运行时可用：Nix 2.34.8；启用 `nix-command` 与 `flakes` 后，本地纯表达式求值成功。`uv` 为 0.12.22；通过 `uv run` 使用现有 Python 3.14.7，标准库 `tomllib` 可导入。当前主机为 Darwin arm64。此检查没有读取远端 flake，也没有验证包输出或构建。
+- 当前 PR head `2b55a5a403b19f1338e3ca33bb0b33d7121fa342` 只有计划文件，没有 Nix flake 或产品输出。因此暂时没有可填写的 `PRODUCER_SHA`，T1–T5 正式命令均未执行；不能据此判定产品通过或失败。`SHARED_SHA` 仍以实际实现锁定值为准，计划中的 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a` 只是接口基准。
+- T4 所需的已授权隔离回环 MCP fixture 及其 URL 尚未提供；没有启动 fixture，也没有连接 Zotero。源代码兼容检查仅在实现改动资源定位时适用，当前没有需要重跑的源代码检查。
+- 工作树自动载入了缓存开发环境，但 `nix-direnv` 无法在只读布局中刷新 gcroot。没有运行 `nix build`，所以这条提示尚不能说明它是否会阻碍正式构建；执行前应在获准的隔离目录按上方 recipe 再检查。
 
 ## 6. 当前状态
 
