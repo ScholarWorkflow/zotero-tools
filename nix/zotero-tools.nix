@@ -67,7 +67,7 @@ let
   };
 in
 package.overrideAttrs (old: {
-  postBuild = (old.postBuild or "") + ''
+  buildCommand = (old.buildCommand or "") + ''
     mkdir -p "$out/bin"
     ln -s "${cliTagger}/bin/zotero-paper-tagger" "$out/bin/zotero-paper-tagger"
     ln -s "${cliSession}/bin/zotero-mcp-session" "$out/bin/zotero-mcp-session"
