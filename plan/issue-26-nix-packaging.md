@@ -4,7 +4,7 @@
 - Plan revision：issue26-plan-v4-2026-10-15。本文件直接替换旧完整方案，是唯一执行与最小测试计划，没有并行旧版本或附加测试清单。
 - Target revision：业务基线 `7c39f03f0d6010e3e4ce8e51f7fc8ba761ef58d8`；替换前计划 head `eac90a39fc2eea33075fafb8deb721d4fe6d1256`。
 - Shared revision：[agent-env-nix PR #1](https://github.com/RekiDunois/agent-env-nix/pull/1)，`760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`，open、未合并，属于接口候选而非已发布稳定版本。
-- Proposed review status: pending。仅改需求/计划，未实现、未测试；正式审核后在本 PR 同一分支实施。
+- Implementation revision：`ae4b9d411589cea8728ae371787196c894f0d642`。正式实施结果及 T1–T5 记录见 §5.7；实现符合性复核结论为部分完成，见 §6。
 - 规则：[Project Consensus](https://app.notion.com/p/rekidunois/Project-Consensus-3d60101a85f3815a8c43f271f2b4d91d)、[Plan Reviewer Rule](https://app.notion.com/p/rekidunois/Plan-Reviewer-Rule-3e80101a85f3817a94cbc6eca1a76a5c)、[Test Engineer Rule](https://app.notion.com/p/rekidunois/Test-Engineer-Rule-3d80101a85f380d8a8f5ce528141e253)。引用不新增本计划之外的测试。
 
 ## 1. 方案、依据与边界
@@ -59,7 +59,7 @@
 
 ## 5. 唯一最小测试计划
 
-测试修订：test-v4.1（2026-10-15），完整替换原测试步骤。实现方案v4不变，不因本次文档SHA重开未受影响P1–P4。当前未执行，不声明测试通过。T1–T5是范围上限，重复观察合并，不把共享库的通用安装/配置/依赖图回归复制到本仓。
+测试修订：test-v4.1（2026-10-15），完整替换原测试步骤。实现方案v4不变，不因本次文档SHA重开未受影响P1–P4。T1–T5是范围上限，重复观察合并，不把共享库的通用安装/配置/依赖图回归复制到本仓；本轮正式结果见 §5.7。
 
 | 项 | 输入/场景 | 预期与检查方法 |
 |---|---|---|
@@ -242,6 +242,16 @@ test -s "$RUN/output/source-session-id.txt"
 - 工作树自动载入了缓存开发环境，但 `nix-direnv` 无法在只读布局中刷新 gcroot。没有运行 `nix build`，所以这条提示尚不能说明它是否会阻碍正式构建；执行前应在获准的隔离目录按上方 recipe 再检查。
 - 本轮针对解释器选择作有限预检：`nix` 2.34.8、`uv` 0.12.22 可用；当前 shell 的 `python3` 为 3.14.7，但导入 `pytest` 失败，因此不能用它作为 `DEV_PYTHON`。`uv python list --only-installed` 因默认缓存目录权限不足而未能确认其他已安装解释器。尚未提供一个已安装 pytest、版本不低于 3.11 的开发解释器绝对路径；执行源码兼容步骤前须由执行环境提供该值。没有安装依赖，也没有运行正式测试。
 
+### 5.7 本轮实施测试结果（2026-10-16）
+
+- Producer SHA：`ae4b9d411589cea8728ae371787196c894f0d642`；平台：`aarch64-darwin`；共享 SHA：`760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`；Nixpkgs：`55bfb4d7437bd4e09ab7cba58a43bd68eb310044`。结果目录：`/private/tmp/issue26-nix-CkxdxV`。
+- T1 通过：固定 SHA 的日常包构建和独立 profile 安装成功；三个 CLI 均可执行；payload 包含三项完整技能、阅读脚本及导出辅助文件、标注脚本及对应 schema，不含 cleaner。包输出：`/nix/store/za8lm1h1x758a8q38cm0f5bi48vsp3kf-zotero-tools-0.1.0`。
+- T2 部分通过：固定 SHA 的 cleaner 包构建成功；包清单仅声明 cleaner 技能和角色，`dependencies` 为空。共享 `apply` 无法判断：现有 `CODEX_HOME` 指向 `/tmp/test-codex-home/config.toml`，共享层的安全检查拒绝 `/tmp` 符号链接祖先；按计划未改 `CODEX_HOME`、配置或信任。
+- T3 部分通过：日常包经共享 `mkProject/apply` 后，三个技能出现在消费者 `.agents/skills`，且没有 cleaner 技能或角色；cleaner 包生成的 TOML 三字段与同 SHA 源角色一致。cleaner 独立消费者未能完成 `apply`，原因同 T2，因此两消费者接入整体无法判断。
+- T4 部分通过：从仓库外运行 `zotero-paper-tagger --help` 与 `zotero-item-export --help` 均成功。已授权隔离回环 MCP fixture 和 URL 未提供，随包及源码 `zotero-mcp-session` 初始化无法判断；源码 pytest 兼容子项也无法判断，当前没有已安装 pytest 且版本不低于 3.11 的开发解释器。未连接真实 Zotero。
+- T5 部分通过：复用 T1/T4 结果确认 profile 中三个可执行 CLI、资源齐全且默认包不含 cleaner；help 调用从临时工作目录完成，未运行 Zotero 业务写入。endpoint/session 子项沿用 T4 的无法判断结果。
+- 候选修正记录：初版 Python 3.11 与 PyMuPDF/NumPy 依赖不兼容，按项目声明改为 Python 3.12；随后发现共享 `runCommand` 忽略 `postBuild`，CLI 链接因此未进入 profile。最终版本将链接追加到 `buildCommand`，并在本条 SHA 通过 T1。
+
 ## 6. 当前状态
 
-v4 已用共享 mkAgentPackage/mkProject 替换旧 share 布局和每仓接入说明，保留包特有 Python/CLI/资源与角色适配。实现方案审核仍 pending；测试修订 test-v4.1 的独立计划复核已完成，第一/第二关口通过，第三关未执行；没有实现或测试结果通过结论。完成条件是两独立可固定包、共享接入、三个 CLI 和源兼容有效、角色正文保持、外部前提如实记录及 T1–T5 最小结果齐备。
+v4 已实施并推送至 PR 分支。T1 通过，T2–T5 的部分结果与环境限制见 §5.7。实现符合性复核（2026-10-16）结论为部分完成：已核对完整计划、flake 与锁文件、两包声明、资源改写、资源定位、README 和源角色；未发现具体实现偏差。cleaner 独立消费者的 apply 结果缺失，T2/T3 必测结果尚未齐备；隔离 endpoint 初始化和源码 pytest 也未验证。该复核不代表第三关或合并批准。
