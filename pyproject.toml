@@ -13,5 +13,8 @@ zotero-item-export = "zotero_tools.item_export:main"
 [tool.uv]
 package = true
 
+[tool.setuptools.packages.find]
+include = ["zotero_tools*"]
+
 [tool.pytest.ini_options]
 testpaths = ["test"]
