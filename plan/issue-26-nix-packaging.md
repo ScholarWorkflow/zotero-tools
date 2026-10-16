@@ -516,14 +516,22 @@ unset ZOTERO_MCP_URL ISOLATED_ZOTERO_MCP_URL
 ### 5.11 原源码兼容审核补测记录（2026-10-16，PR #27 head `f1baf32d3b3b9dee1bfca440f6a073b96a35ae32`）
 
 - 按 PR #27 评论 #6213023047，只补测 §5.4 已列出的两个原源码兼容子项；不重跑 T1–T3、已安装 CLI 帮助或随包 session。待测产品源码与实现提交 `a743b3268a1cc3198326dc7d19d42d103daaa45d` 一致。
-- **源码 tagger pytest：无法判断。**当前命令行没有 `pytest`；现有 Python 3.11、3.12、3.13 和 3.14 解释器均无法导入 `pytest`。未安装依赖。按 §5.4 保留无法判断，不以手动运行帮助命令替代既有 pytest 检查。
+- **首次尝试的源码 tagger pytest：无法判断。**当时当前命令行没有 `pytest`；现有 Python 3.11、3.12、3.13 和 3.14 解释器均无法导入 `pytest`，因此先按 §5.4 记录无法判断。随后按用户要求使用 `uv --with pytest` 补测，结果见 §5.12。
 - **源码 session：通过。**使用干净的 `skills-test-fixtures` 提交 `becf17801bfe99e9a9c7634d831727d85b4f171b`，通过官方准备入口生成匹配当前脚本的资源清单；以提权方式运行官方 fixture 启动脚本，在 Zotero `11.0` 与 MCP 插件 `1.6.0` 的独立 profile 上取得动态回环 `/mcp` 端点。首次启动因复用的清单与脚本版本不匹配而在打开应用前退出；正式准备入口重建清单后，提权重试成功。
 - 清除继承环境，以源码树为 `PYTHONPATH` 且未设置 `ZOTERO_TOOLS_RESOURCE_ROOT`，执行 `uv run --no-project --python /usr/bin/python3 -- python -m zotero_tools.session`，只发送 initialize。第一次调用后，记录退出码的 shell 包装误用了 zsh 只读变量 `status`，因此该次退出码不可判定；保留其 23 字节非空输出长度后删除会话标识，并按计划重试一次。第二次命令退出码为 `0`，输出 23 字节且非空；会话标识未保留。没有连接真实 Zotero，也没有执行业务读写。
 - 使用官方 fixture 脚本停止本轮隔离实例，退出码为 `0`；fixture profile、数据目录、运行目录和隔离缓存已清理。结果摘要和最小诊断仅保存在本机临时目录，没有提交会话标识或动态端口。
-- **T4 状态：部分通过。**源码 session 通过；源码 tagger pytest 因现有解释器不含 pytest 而无法判断。两个已安装 CLI 帮助和随包 session 继续复用之前的有效结果。
-- **T5 状态：未全部完成。**T1–T3 及已安装包检查继续有效；源码 pytest 子项仍无法判断，因此不能称全部适用检查通过，也不能据此批准第三关。
+- **首次尝试的 T4 状态：部分通过。**源码 session 通过；当时源码 tagger pytest 无法判断。之后的最终结果见 §5.12。
+- **首次尝试的 T5 状态：未全部完成。**当时源码 pytest 子项无法判断；之后的最终结果见 §5.12。
+
+### 5.12 使用 uv 临时依赖补测源码 pytest（2026-10-16）
+
+- 按用户要求使用 `uv --with pytest` 临时提供测试工具，没有修改项目依赖、锁文件或配置。Python 为 `/usr/bin/python3`（3.14.7），pytest 为 `9.1.1`。
+- 执行原计划指定的单项测试：`test/test_entrypoints.py::test_tagger_help_is_available_from_any_cwd`，命令使用 `uv run --no-project --python /usr/bin/python3 --with pytest -- python -m pytest -q -p no:cacheprovider`；`PYTHONPATH` 指向本 PR 源码树。结果：`1 passed in 0.14s`。
+- **最终 T4 状态：通过。**源码 session 与源码 tagger pytest 均通过；此前有效的已安装 CLI 帮助和随包 session 结果继续适用。
+- **最终 T5 状态：全部适用检查通过。**源码 pytest 子项现已通过；测试结果齐备不等于正式第三关审核批准。
+- 临时 uv 缓存位于仓库外的隔离目录，测试后已清理。
 
 ## 6. 当前状态
 
-执行计划 v5 的 P1–P4 定向复核已通过，结论 `APPROVED`；测试修订 `test-v5.3` 第一关沿用通过，新增 T4 准备与清理步骤的第二关已通过 PR #27 评论 #6210184083，历史 `test-v5.2` 第二关记录保持不变。PR #27 的实现提交 `a743b3268a1cc3198326dc7d19d42d103daaa45d` 已将 `flake.nix`/`flake.lock` 和 README 更新至共享 SHA `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`，并保留 nixpkgs 锁定值。T1–T3 和已安装包的 T4 检查通过。原源码 session 兼容检查通过；原源码 tagger pytest 因现有 Python 环境没有 pytest 而无法判断。T4 部分通过，T5 尚未全部完成；第三关仍待确认该源码 pytest 子项。补测记录见 §5.11；本状态不代表测试关口通过或批准合并。
+执行计划 v5 的 P1–P4 定向复核已通过，结论 `APPROVED`；测试修订 `test-v5.3` 第一关沿用通过，新增 T4 准备与清理步骤的第二关已通过 PR #27 评论 #6210184083，历史 `test-v5.2` 第二关记录保持不变。PR #27 的实现提交 `a743b3268a1cc3198326dc7d19d42d103daaa45d` 已将 `flake.nix`/`flake.lock` 和 README 更新至共享 SHA `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`，并保留 nixpkgs 锁定值。T1–T3 和已安装包的 T4 检查通过；原源码 session 和 tagger pytest 兼容检查均通过。T4 通过，T5 的全部适用检查已齐备；正式第三关审核仍待进行。补测记录见 §5.11–§5.12；测试结果不代表测试关口已获批准或批准合并。
 
