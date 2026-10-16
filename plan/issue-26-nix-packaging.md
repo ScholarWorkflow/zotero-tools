@@ -405,6 +405,14 @@ fi
 - **已存在的上游证据**：共享库在 `aarch64-darwin` 的 T1–T4（含 38 个单元检查及集成安装）已有 [正式记录](https://github.com/RekiDunois/agent-env-nix/blob/ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e/docs/validation.md)。按 Test Engineer Rule 不在本仓重复执行其通用校验。新 producer 构建/安装的业务结果必须由本仓正式入口确认；正式尝试与环境阻断按 §5.5 记录，仍不得连接真实 Zotero。
 - **审核与交接**：旧计划关于包划分与固定 CLI 的决定不变，可沿用未受影响的审核依据；共享文件所有权/故障处理变化影响执行计划 P1、P3、P4，测试步骤第二关的共享 SHA 和 T1–T3 接入方式需要定向复核。无独立子代理审核结果，不声称新计划已批准。负责人：计划审核者复核受影响关口；产品实现负责人更新锁文件/README；本地测试工程师执行上述仍需结果。
 
+### 5.9 本地准备预检（2026-10-16，PR #27 head `a4f55b5`）
+
+- 当前主机为 Darwin arm64；Nix 2.34.8、`flakes` 与 `nix-command`、`uv` 0.12.22、Python 3.14.7（含 `tomllib`）、jq 1.8.2、`mktemp`、`mkdir` 和 `find` 均可用；`/tmp` 可写。此项只检查运行时和必要命令，不读取远端 flake、不构建、不安装，也不运行业务入口或正式用例。
+- `ZOTERO_MCP_URL` 当前未设置，Recipe 仍会显式清除继承值。尚未提供获授权的隔离回环 MCP 地址，因此 T4 会话初始化暂不能准备为可执行输入；没有启动 fixture，也没有连接 Zotero。
+- 当前未提供 `PRODUCER_SHA`；按 §6，PR 仍使用旧共享锁定值，等待实现负责人更新锁文件和 README。新版 T1–T5 尚无可运行目标，不执行正式检查。
+- 本轮未提供 `DEV_PYTHON`。源码 pytest 子项仅在本次改动影响资源定位时适用；既有记录只确认当前 `python3` 无 pytest，其他已安装解释器尚未确认，不据此断言环境中不存在合格解释器。
+- 未运行 `nix build`、`nix profile install`、`agent-env apply`、CLI `--help`、会话初始化或 pytest。原始预检输出保存在仓库外的本次独立 `/tmp` 目录，由本轮交付记录给出位置。
+
 ## 6. 当前状态
 
 执行计划 v5 和测试修订 `test-v5.2` 已写作待审候选，**Plan proposed review status: pending**；本次文档修改不代表独立审批、实现或测试通过。PR #27 现有产品仍锁定 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`，等待实现负责人将 `flake.nix`/`flake.lock` 与 README 更新至 `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`。旧版实施符合性和 T1–T5 结果保留在 §5.7；新共享库的 T1/T2/T3/T5 尚无正式执行结果。原 T4 两个 help 已通过，隔离 endpoint 初始化与源码 pytest 尚未判断。不得将共享库自身已通过的 Mac 测试当作本仓安装结果，或以旧版失败阻断冒充新版已失败。
