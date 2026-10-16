@@ -1,34 +1,34 @@
 # Issue #26：复用 agent-env-nix 的 Zotero 独立分包计划
 
-- Requirement revision：2026-10-15 共享层替换版 [Issue #26](https://github.com/ScholarWorkflow/zotero-tools/issues/26)。
-- Plan revision：issue26-plan-v4-2026-10-15。本文件直接替换旧完整方案，是唯一执行与最小测试计划，没有并行旧版本或附加测试清单。
-- Target revision：业务基线 `7c39f03f0d6010e3e4ce8e51f7fc8ba761ef58d8`；替换前计划 head `eac90a39fc2eea33075fafb8deb721d4fe6d1256`。
-- Shared revision：[agent-env-nix PR #1](https://github.com/RekiDunois/agent-env-nix/pull/1)，`760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`，open、未合并，属于接口候选而非已发布稳定版本。
-- Implementation revision：`ae4b9d411589cea8728ae371787196c894f0d642`。正式实施结果及 T1–T5 记录见 §5.7；实现符合性复核结论为部分完成，见 §6。
+- Requirement revision：2026-10-16 [Issue #26](https://github.com/ScholarWorkflow/zotero-tools/issues/26) 已同步 `agent-env-nix` PR #3 的选中技能/角色整体替换、MCP 配置保护及失败重跑约定；原两包业务目标不变。
+- Plan revision：`issue26-plan-v5-2026-10-16`，测试修订：`test-v5.0-2026-10-16`。本文件为 `plan/` 下唯一完整的执行与最小测试计划，代替 v4/test-v4.1；必测 T1–T5 上限不变。新版方案与步骤待独立复核。
+- Target revision：原业务基线 `7c39f03f0d6010e3e4ce8e51f7fc8ba761ef58d8`；本轮修订前 PR #27 head `cefd1cb3943ccfef362a1e8fdddcdfa6b0494e34`（包含旧共享库实现）。本次先修计划，Nix 锁文件和 README 的产品改动尚待实施。
+- Shared revision：升级目标为已合并的 [agent-env-nix PR #3](https://github.com/RekiDunois/agent-env-nix/pull/3)，固定 merge commit `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`；旧实现锁定 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`，只供历史记录引用，不视为新版本已验证。
+- Implementation revision：旧版已实现并测试的 producer `ae4b9d411589cea8728ae371787196c894f0d642`；其原 T1–T5 结果在 §5.7 保留。升级后的 producer SHA 和结果在实际提交/执行后填写，不把旧版通过结论迁移为新版通过。
 - 规则：[Project Consensus](https://app.notion.com/p/rekidunois/Project-Consensus-3d60101a85f3815a8c43f271f2b4d91d)、[Plan Reviewer Rule](https://app.notion.com/p/rekidunois/Plan-Reviewer-Rule-3e80101a85f3817a94cbc6eca1a76a5c)、[Test Engineer Rule](https://app.notion.com/p/rekidunois/Test-Engineer-Rule-3d80101a85f380d8a8f5ce528141e253)。引用不新增本计划之外的测试。
 
 ## 本轮平台与审核边界（2026-10-15 18:00 UTC）
 
 首批支持与验收仅限 `aarch64-darwin`。Linux 不在本轮支持承诺、必测范围或合并前置内；不新增跨平台矩阵。既有 Linux 结果如有则保留为历史记录，不能替代 Mac 验收证据；已有且未受影响的 Mac PASS 直接复用，不因本次文档修订重复执行。
 
-本轮仅对平台范围修订作定向复核；未受影响的既有计划审核结论与测试结果继续沿用，不要求全量重审。MCP 初始化仍仅限原清单，不能借本次平台修订扩大验证范围。
+2026-10-15 平台范围的定向复核记录继续有效。本次因共享库合并而更新文件安装/失败语义和依赖版本，只复核受影响的方案决策与测试步骤；未受影响的结论沿用。MCP 初始化仍仅限原清单，不借升级扩大验证范围。
 
 ## 1. 方案、依据与边界
 
-需求是日常工具与破坏性 cleaner 分开、完整资源、固定依赖、原有角色确认和 APM 行为保留。当前 Python tagger/session 按模块目录向上查找 `.apm/skills`，进入 Nix Python 库后不能自然成立，技能也仍使用 uv/shell/PDF 命令。因此 producer 负责固定运行包、资源根和必要 Nix 调用适配，共享层负责声明式包、组合、复制和 Codex 角色/配置保护。仅复制 SKILL.md、给所有功能一个默认大包、每仓再建安装器均不满足这一职责分离。
+需求是日常工具与破坏性 cleaner 分开、完整资源、固定依赖、原有角色确认和 APM 行为保留。当前 Python tagger/session 按模块目录向上查找 `.apm/skills`，进入 Nix Python 库后不能自然成立，技能也仍使用 uv/shell/PDF 命令。因此 producer 负责固定运行包、资源根和必要 Nix 调用适配，共享层负责声明式包、组合、选中技能/角色复制以及所选 MCP 配置保护。仅复制 SKILL.md、给所有功能一个默认大包、每仓再建安装器均不满足这一职责分离。
 
 关键事实来源：
 - [pyproject.toml](https://github.com/ScholarWorkflow/zotero-tools/blob/7c39f03f0d6010e3e4ce8e51f7fc8ba761ef58d8/pyproject.toml)：Python >=3.11、三个 console scripts；[源技能/角色](https://github.com/ScholarWorkflow/zotero-tools/tree/7c39f03f0d6010e3e4ce8e51f7fc8ba761ef58d8/.apm)；[tagger.py](https://github.com/ScholarWorkflow/zotero-tools/blob/7c39f03f0d6010e3e4ce8e51f7fc8ba761ef58d8/zotero_tools/tagger.py)、[session.py](https://github.com/ScholarWorkflow/zotero-tools/blob/7c39f03f0d6010e3e4ce8e51f7fc8ba761ef58d8/zotero_tools/session.py) 的资源定位。
-- 共享 [package.nix](https://github.com/RekiDunois/agent-env-nix/blob/760c1bf60e8ec19d1985660ec5e3276a8ef80b5a/lib/package.nix) 接受完整 files、exports.skills/agents、两类依赖；[project.nix](https://github.com/RekiDunois/agent-env-nix/blob/760c1bf60e8ec19d1985660ec5e3276a8ef80b5a/lib/project.nix) 递归组合并生成 apply/remove；[README](https://github.com/RekiDunois/agent-env-nix/blob/760c1bf60e8ec19d1985660ec5e3276a8ef80b5a/README.md) 明确生成物所有权、闭包与实际复制。
+- 已合并共享 [package.nix](https://github.com/RekiDunois/agent-env-nix/blob/ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e/lib/package.nix) 保留 files、exports.skills/agents、agentDependencies/runtimePackages 及 enableHarnesses；[project.nix](https://github.com/RekiDunois/agent-env-nix/blob/ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e/lib/project.nix) 保留 mkProject，改为生成 shell 激活器；[activate.sh](https://github.com/RekiDunois/agent-env-nix/blob/ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e/runtime/activate.sh) 直接替换选中叶子、保留名称清单并允许失败后重跑；[config.py](https://github.com/RekiDunois/agent-env-nix/blob/ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e/runtime/config.py) 仅处理 MCP/TOML 配置，未选择 MCP 时不检查无关 CODEX_HOME 配置。
 - [Codex skills](https://developers.openai.com/codex/skills)、[subagents](https://developers.openai.com/codex/subagents)：技能需进入发现位置；角色为 name、description、developer_instructions 的原生 TOML。共享库不会读取 APM frontmatter 并自动理解其宿主 variants，本仓仍须准确选取描述/正文。
 
-预期变化：新增两独立 agent 包和共享 Codex 接入；保留：原四技能、源角色、三个 CLI 业务、APM/OpenCode/uv 非 Nix 路径、运行时端点参数、cleaner 确认。禁止：默认带 cleaner、真实数据写入测试、业务/schema 重构、虚构 Zotero MCP 服务、改消费者仓库或用户信任、秘密入 store。
+预期变化：两独立 agent 包与共享 Codex 接入改用 PR #3 合并提交；选中技能/角色文件允许直接整体替换（包含同名未管理内容和用户直接编辑），MCP 配置仍按生成值保留用户改动并报告冲突；安装中断后允许部分文件已更新，修复后从正式入口重跑。保留：原四技能、源角色、三个 CLI 业务、APM/OpenCode/uv 非 Nix 路径、运行时端点参数、cleaner 执行前确认、未选中资源。禁止：默认带 cleaner、真实数据写入测试、业务/schema 重构、虚构 Zotero MCP 服务、改消费者仓库或用户信任、秘密入 store。批准的文件替换约定以当前 Issue #26 为准。
 
 ## 2. 唯一接口及 producer 修改点
 
 ### 2.1 包声明与选择
 
-新增 flake.nix/flake.lock、nix/，共享 input 固定上述 SHA 与实际 nixpkgs/平台。共享仓访问使用现有 Nix/Git 认证，不将 token 写进声明。首批仅对 `aarch64-darwin` 声明可消费。
+现有 flake.nix/flake.lock、nix/ 已在 PR #27 实现。本轮把 `flake.nix` 的共享 input 与 `flake.lock` 中该节点锁定到上述 PR #3 合并提交，避免追踪浮动分支；保持现有 nixpkgs 与其余输入的固定版本，除非新接口确实要求调整。共享仓访问使用现有 Nix/Git 认证，不将 token 写进声明。首批仅对 `aarch64-darwin` 声明可消费。
 
 - `packages.<system>.zotero-tools`：共享 mkAgentPackage 结果，exports.skills 为 zotero-read、zotero-collections、zotero-paper-tagger；files 包含完整目录、scripts/schema 及所需附属资源；runtimePackages 引用固定 Python 应用与所需 shell/PDF 工具。无 cleaner export 或强制依赖。
 - `packages.<system>.zotero-collection-cleaner`：独立 mkAgentPackage，完整 cleaner 技能，exports.agents.zotero-collection-cleaner 的 description/developer_instructions 来自同一源角色的既有 Codex variant；共享层生成 name/TOML。不另写 Codex 序列化器，不把 OpenCode permission/hidden/question 当权限字段。
@@ -49,23 +49,29 @@
 
 ## 3. 共享接入及生命周期
 
-消费者调用共享 `lib.mkProject { inherit pkgs; roots = [ ... ]; }`，构建环境后显式运行 `bin/agent-env apply --project <project>`。本仓只给可复用例子，不写本仓 installer/consumer-view。构建和 profile CLI 安装均不等于技能已发现；apply 生成实际 `.agents/skills/<name>` 文件和 `.codex/agents/<name>.toml`，Codex 是否信任由宿主既有配置决定。
+消费者继续调用共享 `lib.mkProject { inherit pkgs; roots = [ ... ]; }`，构建环境后显式运行 `bin/agent-env apply --project <project>`。本仓只提供可复用示例，不另写 installer/consumer-view。包构建或 profile 安装不会使技能自动出现在项目；实际输出仍为 `.agents/skills/<name>` 和 `.codex/agents/<name>.toml`，宿主信任保持现状。
 
-共同职责全部复用共享层：递归依赖、同一包身份去重、导出碰撞拒绝、完整复制、原生 TOML、相关配置层检测、保活 GC roots、apply/remove。不同包同名 export 即使内容相同仍拒绝；项目已有等价未管理资源则复用不认领。不能用“所有等价来源都合并”替代这一真实合同。
+共享库负责递归 agentDependencies、包去重、导出名称碰撞拒绝、完整文件复制、原生角色 TOML、MCP 配置来源核对、GC roots 以及 apply/remove。本仓负责两包拆分、资源根、固定解释器、技能命令及三个 CLI；`runtimePackages` 仍只保留普通程序闭包，不自动提供 PATH/bin，也不展开其他技能。不同包同名 export 仍拒绝。
 
-已管理技能目录为生成物，用户应改源仓库；升级/移除允许整树替换/删除。其他来源技能不动。已管理 agent/config 若与上次生成值不同则保留并报告；其他配置/未知字段保留。共享 apply 不写全局配置、不改信任，无法读取的 managed/cloud/MDM 或后续会话覆盖不在保证内；不承诺整个项目原子性。冲突停止相应接入，不静默覆盖，不在本仓建设第二套保护实现。
+按已合并 PR #3 的合同，**本次 roots 选中的技能目录和角色文件一律由共享库替换整个目标叶子**：即使已有同名未管理资源或用户直接编辑，也不复用、不中断询问。用户要保留修改应先改 producer 源文件；安装器不保护这些编辑。未选中的其他技能/角色及相邻文件不动。`agent-env remove` 只清理此前记录的选中名称，不删除无关兄弟文件。
+
+**MCP 配置的保护单独处理**：仅所选的 `mcp_servers` 项检查来源冲突；等价未管理定义复用且不认领；已生成值被用户改动时保留并报告。其他配置字段、全局信任及未知内容不改。本仓两个包默认 `mcp` 为空，新版配置辅助程序在没有所选 MCP 项时跳过对无关 `CODEX_HOME/config.toml` 的检查；原 T2/T3 的旧版路径阻断不代表新版已通过。
+
+共享库现在用 shell 复制选中资源，Python 只处理 MCP/TOML，**无跨文件事务和回滚**。如果 apply 在复制途中失败，可能留下部分新版；保留部署名称清单及必要 GC roots，排除故障后从官方 `agent-env apply` 完整重跑，不直接修补 consumer。旧版的 `.agent-env-nix/pending.json` 若仍存在，先按旧版程序处理，不能强行绕过迁移检查。首轮测试使用独立全新 consumer，不为共享库通用升级/移除语义增加重复回归。
+
+已知范围内的 macOS 大小写仅差别重命名风险由共享 PR #3 既有记录接受；本次已声明 export 名称无此类变化，不新增该风险的测试。共享 apply 不写全局配置、不改信任，不承诺整个项目原子性，也不宣称能判断不可读取的受管配置或后续会话覆盖。
 
 ## 4. 实施顺序和完成边界
 
-1. 正式审核本完整计划；确认 producer/shared 精确 SHA、Nix/平台和直接调用。共享接口更新需分析影响再改锁，不能直接追浮动主分支。
-2. 实现共享 flake 引用及两包声明；先完成日常固定资源/runtime/CLI，保留 default 不含 cleaner。
-3. 完成 cleaner 独立声明及源角色到 description/body 的最小适配；不重造共享 TOML 投影或碰撞检测。
-4. README 记录 build/profile CLI 与共享 mkProject/apply 的区别、两个包的资源/CLI、Codex-only override、APM 兼容、可写目录、外部 Zotero 前提与可引用 SHA。
-5. 同 PR 按以下唯一最小清单记录结果。日常包先就绪可供 professor-research-core/explainer/contact 接入，cleaner 不阻塞；不修改消费者。两包完整后按现行合并审核，合并 Closes #26 关闭 issue。
+1. 采用更新后的 Issue #26 与本版唯一正式计划；明确旧版结论只对原共享 SHA 有效。按规则对受影响的 P1（上游事实）、P3（文件替换/失败语义）和 P4（固定版本及交接）定向复核；P2 的包归属、接口与核心方案可沿用既有证据，未经复核不得自行将新计划标为 `APPROVED`。
+2. 实现负责人在 PR #27 **同一分支**修改 `flake.nix` 与 `flake.lock`：共享库固定 `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`，保留既有 nixpkgs/平台约束，不顺便更新无关依赖。核对两处锁定值与真实合并版本一致；旧版结果不声称新版本通过。
+3. 依据新共享 `lib/package.nix`/`lib/project.nix` 核对已实现的 `nix/default.nix`、`nix/zotero-tools.nix`、`nix/zotero-collection-cleaner.nix`、`nix/skill-resources.nix`：接口、`passthru.agentEnv` 和 `buildCommand` 的行为保留时不重写业务或安装器；若构建给出具体不兼容事实，仅修复本仓调用点。三 CLI、资源根、源角色和非 Nix 路径仍按 §2 交付。
+4. 更新 `README.md` 中引用的旧共享 SHA、技能/角色替换和失败重跑说明；继续区分 profile 提供 CLI 与 `mkProject/apply` 部署技能。无需改消费者仓库或用户配置。
+5. 按 §5 的 **同一 T1–T5 清单**只复核受到共享版本变化影响的包构建和正式安装；未受影响的 CLI 帮助输出可复用，旧版未完成的隔离 MCP 初始化、源码兼容检查继续如实记录。全部必测结果有效后再独立申请合并审核；两包完成后由 PR 的 `Closes #26` 关闭问题。
 
 ## 5. 唯一最小测试计划
 
-测试修订：test-v4.1（2026-10-15），完整替换原测试步骤。实现方案v4不变，不因本次文档SHA重开未受影响P1–P4。T1–T5是范围上限，重复观察合并，不把共享库的通用安装/配置/依赖图回归复制到本仓；本轮正式结果见 §5.7。
+测试修订：`test-v5.0-2026-10-16`。保持已批准的 T1–T5 及原预期，不增加用户编辑覆盖、迁移/回滚、大小写重命名、共享库配置来源或平台矩阵等新用例。共享 PR #3 的选中叶子替换与失败重跑已有苹果芯片 Mac T1–T4 记录，本仓只检验自己的包与正式部署。旧 SHA 的正式结果见 §5.7；新版按 §5.8 的影响范围执行，不能混报。
 
 | 项 | 输入/场景 | 预期与检查方法 |
 |---|---|---|
@@ -77,23 +83,24 @@
 
 ### 5.1 准备参数与正式共享入口
 
-以下是实施后的执行 recipe，本次平台修订不运行测试。执行者从待测实现填入 `PRODUCER_SHA`、`SYSTEM`（本轮固定 aarch64-darwin）；已有实施与结果见 §5.7；仅补仍未完成的既有项目。`SHARED_SHA` 使用 producer 实际锁定的共享实现，本文接口基准为 760c1bf60e8ec19d1985660ec5e3276a8ef80b5a；若仅文档提交更新，不因此重跑无影响结果。需要现成 Nix flakes、`uv`、Python >=3.11 和正常仓库读取权限，缺失只暂停相关项，不安装新的通用测试工具。
+以下为 producer 更新锁文件**之后**的唯一执行步骤。本次仅修订计划、尚未执行新版正式测试。执行者填入包含新共享锁定值的 `PRODUCER_SHA`；平台固定 `aarch64-darwin`，`SHARED_SHA` 必须等于 producer 的 `flake.lock`：`ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`。只有计划文字变化不触发复验；上游构建输入真实变化时只复核受影响目标。原结果见 §5.7、新版判定见 §5.8。沿用现成 Nix flakes、`uv`、Python >=3.11 和仓库读取权限，缺失仅暂停相关项，不新建通用测试设施。
 
 ```bash
 set -euo pipefail
 export PRODUCER_SHA='<待测实现的远端40位SHA>'
 export SYSTEM=aarch64-darwin
-export SHARED_SHA=760c1bf60e8ec19d1985660ec5e3276a8ef80b5a
+export SHARED_SHA=ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e
 export REPO='ScholarWorkflow/zotero-tools'
 export REF="github:$REPO/$PRODUCER_SHA"
 export RUN="$(mktemp -d /tmp/issue26-nix-XXXXXX)"
-mkdir -p "$RUN/compose" "$RUN/output" "$RUN/work" "$RUN/cache" "$RUN/state"
+mkdir -p "$RUN/compose" "$RUN/output" "$RUN/work" "$RUN/cache" "$RUN/state" "$RUN/cache/nix"
+export NIX_CACHE_HOME="$RUN/cache/nix"
 export XDG_CACHE_HOME="$RUN/cache" XDG_STATE_HOME="$RUN/state" TMPDIR="$RUN/work"
 export UV="$(command -v uv)" PYTHON="$(command -v python3)" UV_CACHE_DIR="$RUN/cache/uv"
 export SOURCE="$(nix eval --raw "$REF#outPath")"
 ```
 
-不修改 HOME/CODEX_HOME、用户信任或已有 eval 服务。消费者位于仓库/worktree 外，所选路径须已获准用于隔离运行。实际需要Codex时通过既有eval命令显式传入 `--sandbox workspace-write`；不读取或审核eval服务的Codex信任名单，不增设预先信任检查，也不修改全局信任。只有真实执行返回权限问题时，才按运行环境结果处理。只记录实际 SHA、consumer 路径、安装命令和结果位置，不额外制作来源 manifest、hash 链或全环境快照。
+不修改 HOME/CODEX_HOME、用户信任或已有 eval 服务。共享新版在没有选中的 MCP 项时不必读取外部 CODEX_HOME 配置；若实测仍有拒绝访问，记录实际故障并将受影响项标为无法判断，不修改产品保护或通过人为改写 CODEX_HOME 求通过。独立 Nix 缓存目录只用于避免已有只读缓存问题；仍受沙箱限制时按原审批处理。消费者位于仓库/worktree 外，所选路径须已获准用于隔离运行。实际需要Codex时通过既有eval命令显式传入 `--sandbox workspace-write`；不读取或审核eval服务的Codex信任名单，不增设预先信任检查，也不修改全局信任。只有真实执行返回权限问题时，才按运行环境结果处理。只记录实际 SHA、consumer 路径、安装命令和结果位置，不额外制作来源 manifest、hash 链或全环境快照。
 
 下面的 `flake.nix` 是消费者配置，不是安装脚本；`ROOTS_NIX` 按后续各项明确选择。本例直接调用共享库，不建立本仓 consumer-view、复制器或配置合并器。
 
@@ -238,17 +245,17 @@ test -s "$RUN/output/source-session-id.txt"
 
 收尾可用两个各自环境的 `agent-env remove --project` 移除本次托管资源，解除临时profile引用后保留输出供复核；这只是清理，不新增共享生命周期验收。不终止外部负责人提供的fixture，不按进程名杀进程。源码/APM/OpenCode/uv未受影响的既有结果继续有效。
 
-2026-10-15 独立计划复核已完成：test-v4.1 第一关口（范围）与第二关口（步骤）通过，覆盖本节完整recipe及引用边界；第三关必须等待实施后的真实结果，当前未执行。
+历史记录：2026-10-15 的 `test-v4.1` 第一、第二关口通过，仅覆盖当时的旧共享库步骤。`test-v5.0` 的变化只涉及共享 SHA、受影响的项目接入及相应结果引用，修订后按测试规则复核；不能沿用旧版本对新增步骤的批准。
 
-### 5.6 本轮准备预检（2026-10-15）
+### 5.6 旧版准备预检（2026-10-15，历史记录）
 
 - 基础运行时可用：Nix 2.34.8；启用 `nix-command` 与 `flakes` 后，本地纯表达式求值成功。`uv` 为 0.12.22；通过 `uv run` 使用现有 Python 3.14.7，标准库 `tomllib` 可导入。当前主机为 Darwin arm64。此检查没有读取远端 flake，也没有验证包输出或构建。
-- 当时检查的 PR head `2b55a5a403b19f1338e3ca33bb0b33d7121fa342` 只有计划文件；当前 head `8cfaa600102f26ce8b9124cbb4c1455d7ebbcbeb` 仍只有计划文件，没有 Nix flake 或产品输出。因此暂时没有可填写的 `PRODUCER_SHA`，T1–T5 正式命令均未执行；不能据此判定产品通过或失败。`SHARED_SHA` 仍以实际实现锁定值为准，计划中的 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a` 只是接口基准。
+- 在本段预检发生时，PR head `2b55a5a403b19f1338e3ca33bb0b33d7121fa342` 和 `8cfaa600102f26ce8b9124cbb4c1455d7ebbcbeb` 都只有计划文件，当时无法填写实现 SHA、没有运行正式测试。其后的旧版实现结果已记录于 §5.7；该历史预检不代表新共享库版本的状态。
 - T4 所需的已授权隔离回环 MCP fixture 及其 URL 尚未提供；没有启动 fixture，也没有连接 Zotero。源代码兼容检查仅在实现改动资源定位时适用，当前没有需要重跑的源代码检查。
 - 工作树自动载入了缓存开发环境，但 `nix-direnv` 无法在只读布局中刷新 gcroot。没有运行 `nix build`，所以这条提示尚不能说明它是否会阻碍正式构建；执行前应在获准的隔离目录按上方 recipe 再检查。
 - 本轮针对解释器选择作有限预检：`nix` 2.34.8、`uv` 0.12.22 可用；当前 shell 的 `python3` 为 3.14.7，但导入 `pytest` 失败，因此不能用它作为 `DEV_PYTHON`。`uv python list --only-installed` 因默认缓存目录权限不足而未能确认其他已安装解释器。尚未提供一个已安装 pytest、版本不低于 3.11 的开发解释器绝对路径；执行源码兼容步骤前须由执行环境提供该值。没有安装依赖，也没有运行正式测试。
 
-### 5.7 本轮实施测试结果（2026-10-16）
+### 5.7 旧共享版本实施测试结果（2026-10-16，历史记录）
 
 - Producer SHA：`ae4b9d411589cea8728ae371787196c894f0d642`；平台：`aarch64-darwin`；共享 SHA：`760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`；Nixpkgs：`55bfb4d7437bd4e09ab7cba58a43bd68eb310044`。结果目录：`/private/tmp/issue26-nix-CkxdxV`。
 - T1 通过：固定 SHA 的日常包构建和独立 profile 安装成功；三个 CLI 均可执行；payload 包含三项完整技能、阅读脚本及导出辅助文件、标注脚本及对应 schema，不含 cleaner。包输出：`/nix/store/za8lm1h1x758a8q38cm0f5bi48vsp3kf-zotero-tools-0.1.0`。
@@ -258,7 +265,17 @@ test -s "$RUN/output/source-session-id.txt"
 - T5 部分通过：复用 T1/T4 结果确认 profile 中三个可执行 CLI、资源齐全且默认包不含 cleaner；help 调用从临时工作目录完成，未运行 Zotero 业务写入。endpoint/session 子项沿用 T4 的无法判断结果。
 - 候选修正记录：初版 Python 3.11 与 PyMuPDF/NumPy 依赖不兼容，按项目声明改为 Python 3.12；随后发现共享 `runCommand` 忽略 `postBuild`，CLI 链接因此未进入 profile。最终版本将链接追加到 `buildCommand`，并在本条 SHA 通过 T1。
 
+### 5.8 PR #3 升级影响与新版复核状态（2026-10-16，待执行）
+
+- **变更原因和输入**：共享 [PR #3](https://github.com/RekiDunois/agent-env-nix/pull/3) 已合并；新的 `package.nix` / `project.nix` 保留调用接口，但选中技能/角色文件整体替换、配置保护只针对 MCP，且失败后无跨文件回滚。Issue #26 已同步该行为。旧共享输入 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`、历史生产者 `ae4b9d411589cea8728ae371787196c894f0d642` 的已有结果仅在不受上游变化影响时复用。
+- **T1（新版待执行）**：用生产者新 SHA 构建两个包、核对日常包资源/CLI 和 cleaner 独立性。新共享 `mkAgentPackage` 的 shell 文件复制替代旧路径；因此不能把 §5.7 旧版 T1 通过直接记为新版通过。仅沿用 §5.2 既有检查入口。
+- **T2、T3（新版待执行）**：以新共享 SHA 的 `mkProject/apply` 分别部署两个全新隔离消费者，继续用 §5.3 的源角色三字段、技能目录位置及包独立性断言。旧版 cleaner 的 `CODEX_HOME` 路径拒绝是在旧版安装时出现的环境阻断；新版无需所选 MCP 配置，预期不读取该无关路径，但以实际 `apply` 结果决定通过或无法判断。不额外构造“用户编辑被覆盖”或重复共享层通用失败恢复测试。
+- **T4（部分旧结果可复用）**：仅当产品三 CLI、Python 包装和资源定位未改变，复用 §5.7 已通过的 tagger/item-export `--help`；若这些文件随升级改变，只复核受影响命令。已授权的隔离 Zotero MCP endpoint 未提供，session 初始化仍为无法判断；需要 pytest 的源码兼容子项仍按 §5.4 所写的适用条件决定，不用上游合并作为重跑理由。
+- **T5（新版待引用）**：按原定义直接采用新 T1–T3 的包/资源/独立性结果和仍有效的 T4 输出，不增加专用检查、不验证共享通用回滚、GC/迁移或额外平台。
+- **已存在的上游证据**：共享库在 `aarch64-darwin` 的 T1–T4（含 38 个单元检查及集成安装）已有 [正式记录](https://github.com/RekiDunois/agent-env-nix/blob/ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e/docs/validation.md)。按 Test Engineer Rule 不在本仓重复执行其通用校验。新 producer 构建/安装的业务结果必须由本仓正式入口确认；正式尝试与环境阻断按 §5.5 记录，仍不得连接真实 Zotero。
+- **审核与交接**：旧计划关于包划分与固定 CLI 的决定不变，可沿用未受影响的审核依据；共享文件所有权/故障处理变化影响执行计划 P1、P3、P4，测试步骤第二关的共享 SHA 和 T1–T3 接入方式需要定向复核。无独立子代理审核结果，不声称新计划已批准。负责人：计划审核者复核受影响关口；产品实现负责人更新锁文件/README；本地测试工程师执行上述仍需结果。
+
 ## 6. 当前状态
 
-v4 已实施并推送至 PR 分支。T1 通过，T2–T5 的部分结果与环境限制见 §5.7。实现符合性复核（2026-10-16）结论为部分完成：已核对完整计划、flake 与锁文件、两包声明、资源改写、资源定位、README 和源角色；未发现具体实现偏差。cleaner 独立消费者的 apply 结果缺失，T2/T3 必测结果尚未齐备；隔离 endpoint 初始化和源码 pytest 也未验证。该复核不代表第三关或合并批准。
+执行计划 v5 和测试修订 `test-v5.0` 已写作待审候选，**Plan proposed review status: pending**；本次文档修改不代表独立审批、实现或测试通过。PR #27 现有产品仍锁定 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`，等待实现负责人将 `flake.nix`/`flake.lock` 与 README 更新至 `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`。旧版实施符合性和 T1–T5 结果保留在 §5.7；新共享库的 T1/T2/T3/T5 尚无正式执行结果。原 T4 两个 help 已通过，隔离 endpoint 初始化与源码 pytest 尚未判断。不得将共享库自身已通过的 Mac 测试当作本仓安装结果，或以旧版失败阻断冒充新版已失败。
 
