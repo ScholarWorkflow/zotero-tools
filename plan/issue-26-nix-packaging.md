@@ -1,7 +1,7 @@
 # Issue #26：复用 agent-env-nix 的 Zotero 独立分包计划
 
 - Requirement revision：2026-10-16 [Issue #26](https://github.com/ScholarWorkflow/zotero-tools/issues/26) 已同步 `agent-env-nix` PR #3 的选中技能/角色整体替换、MCP 配置保护及失败重跑约定；原两包业务目标不变。
-- Plan revision：`issue26-plan-v5-2026-10-16`，测试修订：`test-v5.3-2026-10-16`。本文件为 `plan/` 下唯一完整的执行与最小测试计划，代替 v4/test-v4.1；必测 T1–T5 上限不变。执行计划 v5 的 P1–P4 定向复核于 2026-10-16 在 PR #27 评论 #6208524042 全部通过，结论为 `APPROVED`；测试 v5.2 第一、第二关的旧审核记录保留；本轮 v5.3 只补齐 T4 隔离服务启动和清理步骤，第一关沿用，新增步骤的第二关待独立复核；第三关历史结果见 §5.8。
+- Plan revision：`issue26-plan-v5-2026-10-16`，测试修订：`test-v5.3-2026-10-16`。本文件为 `plan/` 下唯一完整的执行与最小测试计划，代替 v4/test-v4.1；必测 T1–T5 上限不变。执行计划 v5 的 P1–P4 定向复核于 2026-10-16 在 PR #27 评论 #6208524042 全部通过，结论为 `APPROVED`；测试 v5.2 第一、第二关的旧审核记录保留；本轮 v5.3 只补齐 T4 隔离服务启动和清理步骤，第一关沿用，新增步骤的第二关已于 2026-10-16 在 PR #27 评论 #6210184083 通过；第三关历史结果见 §5.8，新执行记录见 §5.10。
 - Target revision：原业务基线 `7c39f03f0d6010e3e4ce8e51f7fc8ba761ef58d8`；本轮计划修订前 PR #27 head `cefd1cb3943ccfef362a1e8fdddcdfa6b0494e34`（包含旧共享库实现）。新版实现提交和测试结果分别见顶部 Implementation revision 与 §5.8。
 - Shared revision：升级目标为已合并的 [agent-env-nix PR #3](https://github.com/RekiDunois/agent-env-nix/pull/3)，固定 merge commit `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`；旧实现锁定 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`，只供历史记录引用，不视为新版本已验证。
 - Implementation revision：旧版已实现并测试的 producer `ae4b9d411589cea8728ae371787196c894f0d642`；其原 T1–T5 结果在 §5.7 保留。本轮升级 producer 为 `a743b3268a1cc3198326dc7d19d42d103daaa45d`，新版结果单列于 §5.8，不把旧版通过结论迁移为新版通过。
@@ -493,7 +493,7 @@ unset ZOTERO_MCP_URL ISOLATED_ZOTERO_MCP_URL
 - **已存在的上游证据**：共享库在 `aarch64-darwin` 的 T1–T4（含 38 个单元检查及集成安装）已有 [正式记录](https://github.com/RekiDunois/agent-env-nix/blob/ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e/docs/validation.md)。按 Test Engineer Rule 不在本仓重复执行其通用校验。新 producer 构建/安装的业务结果必须由本仓正式入口确认；正式尝试与环境阻断按 §5.5 记录，仍不得连接真实 Zotero。
 - **审核与交接**：计划 P1–P4 定向复核及测试计划前两关记录见文件顶部。独立实现符合性复核结论为“部分完成”：实现符合计划，未发现实现偏差；由于隔离 session 项无法判断，不能声称所有必需结果齐备。取得获授权的隔离 endpoint 后，只需按 §5.4 补测该 session 项并更新 T5 关联结果，再复核这些受影响结果；本记录不代表合并批准。
 
-- **T4 配方后续修订（`test-v5.3-2026-10-16`，待复核、待执行）**：§5.4–§5.5 增加现有共享 Mac fixture 的实际启动/端口注入/清理步骤；本仓 Linux 无界面集成脚本不参与本轮 Mac 测试。§5.8 的 T1–T3 PASS、T4 两个帮助命令 PASS 及会话子项“无法判断”均为历史真实结果，不因更新文字自动变为通过或失效。只需定向复核新 T4 准备步骤，之后补测会话并更新 T5 关联结果。
+- **T4 配方后续修订（`test-v5.3-2026-10-16`）**：§5.4–§5.5 增加现有共享 Mac fixture 的实际启动/端口注入/清理步骤；本仓 Linux 无界面集成脚本不参与本轮 Mac 测试。新增步骤的第二关已通过（PR #27 评论 #6210184083）；本轮正式尝试和 T5 关联结果见 §5.10。
 
 ### 5.9 本地准备预检（2026-10-16，PR #27 head `a4f55b5`）
 
@@ -503,7 +503,17 @@ unset ZOTERO_MCP_URL ISOLATED_ZOTERO_MCP_URL
 - 本轮未提供 `DEV_PYTHON`。源码 pytest 子项仅在本次改动影响资源定位时适用；既有记录只确认当前 `python3` 无 pytest，其他已安装解释器尚未确认，不据此断言环境中不存在合格解释器。
 - 未运行 `nix build`、`nix profile install`、`agent-env apply`、CLI `--help`、会话初始化或 pytest。原始预检输出保存在仓库外的本次独立 `/tmp` 目录，由本轮交付记录给出位置。
 
+### 5.10 T4 隔离 fixture 补测记录（2026-10-16，PR #27 head `4f57f543214efccda62b1770968d250121c51b47`）
+
+- 测试修订 `test-v5.3-2026-10-16` 的新增步骤第二关已通过 PR #27 评论 #6210184083。T1–T3 复用 §5.8 的有效结果；T4 两个已安装 CLI 的 `--help` 复用 §5.7 的有效结果；本轮没有修改资源根，因此源码兼容子项不适用。
+- 使用既有 `skills-test-fixtures` 仓库，提交为 `becf17801bfe99e9a9c7634d831727d85b4f171b`，工作区干净。首次 fixture 启动在启动 Zotero 前因资源清单与脚本提交不匹配而停止。按 §5.4 准备共享资源时，复用缓存入口遇到 npm `EPERM` 权限错误；随后在本次隔离临时缓存中复用已有插件文件并再次运行正式准备入口，资源校验和清单生成成功，插件版本为 `1.6.0`。
+- 对隔离 fixture 仅重试启动一次。macOS LaunchServices 返回 `kLSNoExecutableErr`，fixture 未生成 `fixture.env`，因此没有隔离 MCP 地址，未运行随包 `zotero-mcp-session`，也没有会话标识。虽发现 `/Applications/Zotero.app/Contents/MacOS/zotero` 文件存在且可执行，但当前应用包仍无法由启动入口打开；未确认可替用的 Zotero 安装。按 §5.5，T4 会话子项记为**无法判断（环境阻断）**，不判为产品失败或通过。未连接真实 Zotero，也未运行任何业务读写。
+- 检查未发现命令行仍在使用本次精确隔离 profile；仅删除本次失败运行目录和本次生成的临时 fixture 缓存，保留仓库外临时目录中的准备与启动诊断。没有停止或改动用户的 Zotero。
+- **T5（部分通过）**：沿用 §5.8 的构建、安装、资源与工具检查；session 关联项继续沿用 T4 的“无法判断”。没有增加检查。
+- **结果边界**：T1–T3 仍通过；T4 的两个帮助命令仍通过，但隔离会话初始化无法判断；T5 的适用检查通过，session 关联项无法判断。本记录不代表合并批准。
+- **本次实施复核**：独立复核确认目标实现符合计划、未发现实现偏差；由于 T4 会话初始化和 T5 关联结果未齐，整体结论为“部分完成”。本结论不代表测试关口通过或批准合并。
+
 ## 6. 当前状态
 
-执行计划 v5 的 P1–P4 定向复核已通过，结论 `APPROVED`；测试修订 `test-v5.3` 的第一关沿用通过，新增 T4 准备与清理步骤的第二关待独立复核；历史 `test-v5.2` 的第二关通过记录保持不变。PR #27 的实现提交 `a743b3268a1cc3198326dc7d19d42d103daaa45d` 已将 `flake.nix`/`flake.lock` 和 README 更新至共享 SHA `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`，并保留 nixpkgs 锁定值。新版 T1、T2、T3 通过；T4 复用两个 help 结果，但隔离 session 因无获授权 endpoint 而无法判断，源码兼容子项不适用；T5 的适用观察通过，session 子项无法判断。独立实现符合性复核确认实现符合计划、未发现实现偏差，但整体结论为“部分完成”，原因是上述 session 结果未齐。本地测试工程师按 §5.4 的正式 Mac fixture 启动步骤取得授权隔离 endpoint 后，仅补测 session 并更新 T5 关联结果；正式输出和日志在 `/private/tmp/issue26-nix-QF4SR7/output/`。旧版结果继续保留在 §5.7，不能替代本轮新版结果；共享库自身的 Mac 测试也不替代本仓构建与安装检查。本状态不代表合并批准。
+执行计划 v5 的 P1–P4 定向复核已通过，结论 `APPROVED`；测试修订 `test-v5.3` 第一关沿用通过，新增 T4 准备与清理步骤的第二关已通过 PR #27 评论 #6210184083，历史 `test-v5.2` 第二关记录保持不变。PR #27 的实现提交 `a743b3268a1cc3198326dc7d19d42d103daaa45d` 已将 `flake.nix`/`flake.lock` 和 README 更新至共享 SHA `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`，并保留 nixpkgs 锁定值。新版 T1、T2、T3 通过；T4 两个 `--help` 结果有效，隔离会话因 Zotero 应用包无法由 macOS LaunchServices 打开而无法判断，源码兼容子项不适用；T5 的其他适用检查通过，会话关联项无法判断。正式补测过程和本次实施复核见 §5.10；诊断输出保存在仓库外的本机临时目录。独立实施复核结论为“部分完成”，未发现实现偏差；会话结果齐备后仅需补测 T4 并更新 T5。本状态不代表合并批准。
 
