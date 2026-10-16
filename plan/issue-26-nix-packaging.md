@@ -407,7 +407,7 @@ fi
 - **T5（部分通过）**：复用 T1–T3 有效构建、安装与资源结果，以及 T4 两个有效 help 结果，均满足适用检查；session 子项沿用 T4 的无法判断结果。不增加专用检查。
 - **正式记录位置**：实现 SHA `a743b3268a1cc3198326dc7d19d42d103daaa45d`；平台 `aarch64-darwin`；共享 SHA `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`；本次运行目录 `/private/tmp/issue26-nix-QF4SR7`，汇总及命令日志在其 `output/`，两个消费者分别为 `consumer-tools` 和 `consumer-cleaner`。
 - **已存在的上游证据**：共享库在 `aarch64-darwin` 的 T1–T4（含 38 个单元检查及集成安装）已有 [正式记录](https://github.com/RekiDunois/agent-env-nix/blob/ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e/docs/validation.md)。按 Test Engineer Rule 不在本仓重复执行其通用校验。新 producer 构建/安装的业务结果必须由本仓正式入口确认；正式尝试与环境阻断按 §5.5 记录，仍不得连接真实 Zotero。
-- **审核与交接**：计划 P1–P4 定向复核及测试计划前两关记录见文件顶部；本节为本地正式结果，隔离 session 子项仍无法判断。产品实现及测试记录已完成，之后按本地执行技能完成独立实现符合性复核；此记录本身不代表合并批准。
+- **审核与交接**：计划 P1–P4 定向复核及测试计划前两关记录见文件顶部。独立实现符合性复核结论为“部分完成”：实现符合计划，未发现实现偏差；由于隔离 session 项无法判断，不能声称所有必需结果齐备。取得获授权的隔离 endpoint 后，只需按 §5.4 补测该 session 项并更新 T5 关联结果，再复核这些受影响结果；本记录不代表合并批准。
 
 ### 5.9 本地准备预检（2026-10-16，PR #27 head `a4f55b5`）
 
@@ -419,5 +419,5 @@ fi
 
 ## 6. 当前状态
 
-执行计划 v5 的 P1–P4 定向复核已通过，结论 `APPROVED`；测试修订 `test-v5.2` 的第一、第二关口已通过。PR #27 的实现提交 `a743b3268a1cc3198326dc7d19d42d103daaa45d` 已将 `flake.nix`/`flake.lock` 和 README 更新至共享 SHA `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`，并保留 nixpkgs 锁定值。新版 T1、T2、T3 通过；T4 复用两个 help 结果，但隔离 session 因无获授权 endpoint 而无法判断，源码兼容子项不适用；T5 的适用观察通过，session 子项无法判断。正式输出和日志在 `/private/tmp/issue26-nix-QF4SR7/output/`。旧版结果继续保留在 §5.7，不能替代本轮新版结果；共享库自身的 Mac 测试也不替代本仓构建与安装检查。实现符合性复核完成后再记录其结论；本状态不代表合并批准。
+执行计划 v5 的 P1–P4 定向复核已通过，结论 `APPROVED`；测试修订 `test-v5.2` 的第一、第二关口已通过。PR #27 的实现提交 `a743b3268a1cc3198326dc7d19d42d103daaa45d` 已将 `flake.nix`/`flake.lock` 和 README 更新至共享 SHA `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`，并保留 nixpkgs 锁定值。新版 T1、T2、T3 通过；T4 复用两个 help 结果，但隔离 session 因无获授权 endpoint 而无法判断，源码兼容子项不适用；T5 的适用观察通过，session 子项无法判断。独立实现符合性复核确认实现符合计划、未发现实现偏差，但整体结论为“部分完成”，原因是上述 session 结果未齐。取得获授权 endpoint 后，按 §5.4 补测 session 并更新 T5 关联结果即可；正式输出和日志在 `/private/tmp/issue26-nix-QF4SR7/output/`。旧版结果继续保留在 §5.7，不能替代本轮新版结果；共享库自身的 Mac 测试也不替代本仓构建与安装检查。本状态不代表合并批准。
 
