@@ -277,7 +277,14 @@ fi
 **仅补测未完成的会话子项时**，由本地测试工程师新建本次独占的 `$RUN/output`（沿用 §5.1 的目录初始化即可），并把 `TOOLS_PROFILE_DIR` 设为 §5.8 已验证且仍可执行的 profile，例如 `/private/tmp/issue26-nix-QF4SR7/profile-tools`；其实际有效性须以仍能执行已安装 `zotero-mcp-session` 为准。不要重跑 §5.2–§5.3 的构建/部署和两个已通过的帮助命令。原 profile 失效时才按 §5.2 的正式安装路径重新准备。完整首次执行保持默认的 `$RUN/profile-tools`。
 
 ```bash
-# 本轮单独补测时由本地测试工程师指定此前有效的 profile：
+# 本轮只补测 T4 时从这里开始；已运行 §5.1 的同一 shell 直接复用其 RUN。
+if [ -z "${RUN:-}" ]; then
+  export RUN="$(mktemp -d /tmp/issue26-t4-XXXXXX)"
+fi
+mkdir -p "$RUN/output" "$RUN/work" "$RUN/cache/uv"
+export TMPDIR="$RUN/work" UV_CACHE_DIR="$RUN/cache/uv"
+export PYTHON="${PYTHON:-$(command -v python3 || true)}" UV="${UV:-$(command -v uv || true)}"
+# 本地测试工程师仅在复用 §5.8 中仍有效的 profile 时指定原路径：
 # export TOOLS_PROFILE_DIR='/private/tmp/issue26-nix-QF4SR7/profile-tools'
 export TOOLS_PROFILE_DIR="${TOOLS_PROFILE_DIR:-$RUN/profile-tools}"
 if [ -x "$TOOLS_PROFILE_DIR/bin/zotero-mcp-session" ]; then
