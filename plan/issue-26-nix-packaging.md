@@ -1,10 +1,10 @@
 # Issue #26：复用 agent-env-nix 的 Zotero 独立分包计划
 
 - Requirement revision：2026-10-16 [Issue #26](https://github.com/ScholarWorkflow/zotero-tools/issues/26) 已同步 `agent-env-nix` PR #3 的选中技能/角色整体替换、MCP 配置保护及失败重跑约定；原两包业务目标不变。
-- Plan revision：`issue26-plan-v5-2026-10-16`，测试修订：`test-v5.2-2026-10-16`。本文件为 `plan/` 下唯一完整的执行与最小测试计划，代替 v4/test-v4.1；必测 T1–T5 上限不变。新版方案与步骤待独立复核。
-- Target revision：原业务基线 `7c39f03f0d6010e3e4ce8e51f7fc8ba761ef58d8`；本轮修订前 PR #27 head `cefd1cb3943ccfef362a1e8fdddcdfa6b0494e34`（包含旧共享库实现）。本次先修计划，Nix 锁文件和 README 的产品改动尚待实施。
+- Plan revision：`issue26-plan-v5-2026-10-16`，测试修订：`test-v5.2-2026-10-16`。本文件为 `plan/` 下唯一完整的执行与最小测试计划，代替 v4/test-v4.1；必测 T1–T5 上限不变。执行计划 v5 的 P1–P4 定向复核于 2026-10-16 在 PR #27 评论 #6208524042 全部通过，结论为 `APPROVED`；测试计划第一、第二关口于评论 #6209172543 通过，第三关口结果见 §5.8。
+- Target revision：原业务基线 `7c39f03f0d6010e3e4ce8e51f7fc8ba761ef58d8`；本轮计划修订前 PR #27 head `cefd1cb3943ccfef362a1e8fdddcdfa6b0494e34`（包含旧共享库实现）。新版实现提交和测试结果分别见顶部 Implementation revision 与 §5.8。
 - Shared revision：升级目标为已合并的 [agent-env-nix PR #3](https://github.com/RekiDunois/agent-env-nix/pull/3)，固定 merge commit `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`；旧实现锁定 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`，只供历史记录引用，不视为新版本已验证。
-- Implementation revision：旧版已实现并测试的 producer `ae4b9d411589cea8728ae371787196c894f0d642`；其原 T1–T5 结果在 §5.7 保留。升级后的 producer SHA 和结果在实际提交/执行后填写，不把旧版通过结论迁移为新版通过。
+- Implementation revision：旧版已实现并测试的 producer `ae4b9d411589cea8728ae371787196c894f0d642`；其原 T1–T5 结果在 §5.7 保留。本轮升级 producer 为 `a743b3268a1cc3198326dc7d19d42d103daaa45d`，新版结果单列于 §5.8，不把旧版通过结论迁移为新版通过。
 - 规则：[Project Consensus](https://app.notion.com/p/rekidunois/Project-Consensus-3d60101a85f3815a8c43f271f2b4d91d)、[Plan Reviewer Rule](https://app.notion.com/p/rekidunois/Plan-Reviewer-Rule-3e80101a85f3817a94cbc6eca1a76a5c)、[Test Engineer Rule](https://app.notion.com/p/rekidunois/Test-Engineer-Rule-3d80101a85f380d8a8f5ce528141e253)。引用不新增本计划之外的测试。
 
 ## 本轮平台与审核边界（2026-10-15 18:00 UTC）
@@ -93,6 +93,7 @@ export SHARED_SHA=ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e
 export REPO='ScholarWorkflow/zotero-tools'
 export REF="github:$REPO/$PRODUCER_SHA"
 export RUN="$(mktemp -d /tmp/issue26-nix-XXXXXX)"
+export REAL_RUN="$(cd "$RUN" && pwd -P)"
 mkdir -p "$RUN/output" "$RUN/work" "$RUN/cache" "$RUN/state" "$RUN/cache/nix"
 export NIX_CACHE_HOME="$RUN/cache/nix"
 export XDG_CACHE_HOME="$RUN/cache" XDG_STATE_HOME="$RUN/state" TMPDIR="$RUN/work"
@@ -124,10 +125,10 @@ make_consumer_flake() {
 }
 EOF_NIX
 }
-make_consumer_flake "$RUN/compose-tools" '[ p.zotero-tools ]'
-make_consumer_flake "$RUN/compose-cleaner" '[ p.zotero-collection-cleaner ]'
-export TOOLS_CONSUMER="$RUN/consumer-tools"
-export CLEANER_CONSUMER="$RUN/consumer-cleaner"
+make_consumer_flake "$REAL_RUN/compose-tools" '[ p.zotero-tools ]'
+make_consumer_flake "$REAL_RUN/compose-cleaner" '[ p.zotero-collection-cleaner ]'
+export TOOLS_CONSUMER="$REAL_RUN/consumer-tools"
+export CLEANER_CONSUMER="$REAL_RUN/consumer-cleaner"
 mkdir -p "$TOOLS_CONSUMER" "$CLEANER_CONSUMER"
 ```
 
@@ -170,14 +171,14 @@ fi
 然后按正式共享入口分别安装两个独立消费者；一方部署失败不阻止另一方及已建成的 profile 命令检查。`TOOLS_APPLIED`/`CLEANER_APPLIED` 仅表示本轮正式 `apply` 成功，不能代替 §5.3 的已安装资源检查。
 
 ```bash
-if TOOLS_ENV="$(nix build "path:$RUN/compose-tools#default" --no-link --print-out-paths)" &&
+if TOOLS_ENV="$(nix build "path:$REAL_RUN/compose-tools#default" --no-link --print-out-paths)" &&
    "$TOOLS_ENV/bin/agent-env" apply --project "$TOOLS_CONSUMER"; then
   TOOLS_APPLIED=1
 else
   echo 'T3: daily consumer build/apply failed; record the actual cause' >&2
 fi
 
-if CLEANER_ENV="$(nix build "path:$RUN/compose-cleaner#default" --no-link --print-out-paths)" &&
+if CLEANER_ENV="$(nix build "path:$REAL_RUN/compose-cleaner#default" --no-link --print-out-paths)" &&
    "$CLEANER_ENV/bin/agent-env" apply --project "$CLEANER_CONSUMER"; then
   CLEANER_APPLIED=1
 else
@@ -395,15 +396,18 @@ fi
 - T5 部分通过：复用 T1/T4 结果确认 profile 中三个可执行 CLI、资源齐全且默认包不含 cleaner；help 调用从临时工作目录完成，未运行 Zotero 业务写入。endpoint/session 子项沿用 T4 的无法判断结果。
 - 候选修正记录：初版 Python 3.11 与 PyMuPDF/NumPy 依赖不兼容，按项目声明改为 Python 3.12；随后发现共享 `runCommand` 忽略 `postBuild`，CLI 链接因此未进入 profile。最终版本将链接追加到 `buildCommand`，并在本条 SHA 通过 T1。
 
-### 5.8 PR #3 升级影响与新版复核状态（2026-10-16，待执行）
+### 5.8 PR #3 升级影响与新版复核结果（2026-10-16）
 
 - **变更原因和输入**：共享 [PR #3](https://github.com/RekiDunois/agent-env-nix/pull/3) 已合并；新的 `package.nix` / `project.nix` 保留调用接口，但选中技能/角色文件整体替换、配置保护只针对 MCP，且失败后无跨文件回滚。Issue #26 已同步该行为。旧共享输入 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`、历史生产者 `ae4b9d411589cea8728ae371787196c894f0d642` 的已有结果仅在不受上游变化影响时复用。
-- **T1（新版待执行）**：用生产者新 SHA 构建两个包、核对日常包资源/CLI 和 cleaner 独立性。新共享 `mkAgentPackage` 的 shell 文件复制替代旧路径；因此不能把 §5.7 旧版 T1 通过直接记为新版通过。仅沿用 §5.2 既有检查入口。
-- **T2、T3（新版待执行）**：以新共享 SHA 的 `mkProject/apply` 分别部署两个全新隔离消费者，继续用 §5.3 的源角色三字段、技能目录位置及包独立性断言。旧版 cleaner 的 `CODEX_HOME` 路径拒绝是在旧版安装时出现的环境阻断；新版无需所选 MCP 配置，预期不读取该无关路径，但以实际 `apply` 结果决定通过或无法判断。不额外构造“用户编辑被覆盖”或重复共享层通用失败恢复测试。
-- **T4（部分旧结果可复用）**：仅当产品三 CLI、Python 包装和资源定位未改变，复用 §5.7 已通过的 tagger/item-export `--help`；若这些文件随升级改变，只复核受影响命令。已授权的隔离 Zotero MCP endpoint 未提供，session 初始化仍为无法判断；需要 pytest 的源码兼容子项仍按 §5.4 所写的适用条件决定，不用上游合并作为重跑理由。
-- **T5（新版待引用）**：按原定义直接采用新 T1–T3 的包/资源/独立性结果和仍有效的 T4 输出，不增加专用检查、不验证共享通用回滚、GC/迁移或额外平台。
+- **T1（通过）**：固定 producer SHA `a743b3268a1cc3198326dc7d19d42d103daaa45d` 的日常包构建和 profile 安装成功，输出 `/nix/store/s3pypka44ghsx680wc07gplh25vr9ygp-zotero-tools-0.1.0`。三个 CLI 均可执行；三项技能、阅读与导出 helpers、tagger helpers/schema 齐全，不含 cleaner；manifest 仅声明三项技能；Python 模块位于包闭包中。
+- **T2（通过）**：同一 SHA 的 cleaner 构建成功，输出 `/nix/store/vqr8hb4j9v096ncqhxyrvwcswqnhv9x1-zotero-collection-cleaner-0.1.0`。manifest 仅声明 cleaner 技能和角色，`dependencies` 为空；独立 cleaner 消费者随后经共享 `mkProject/apply` 部署成功，结果见 T3。
+- **T3（通过）**：日常和 cleaner 两个全新消费者均经固定共享 SHA 的 `mkProject/apply` 成功。日常安装有三个非符号链接技能目录及 `SKILL.md`，不含 cleaner 技能或角色；cleaner 安装仅含 cleaner 技能，TOML 恰有 `name`、`description`、`developer_instructions` 三字段，名称正确，描述和正文与同 SHA 源角色一致。
+- **环境重试记录**：首次本地 flake 路径使用 `/tmp/issue26-nix-QF4SR7`，Nix 报 `path '//tmp' is a symlink`，在构建消费者配置阶段即停止，未运行 `apply`。按 §5.5 只重试一次，将同一运行目录解析为物理路径 `/private/tmp/issue26-nix-QF4SR7`；两项消费者构建、`apply` 和资源检查均通过。该次重试处理的是路径环境问题，不是产品失败。§5.1–§5.2 recipe 已改用 `REAL_RUN` 避免重复阻断。
+- **T4（部分通过）**：tagger 与 item-export 的 `--help` 复用 §5.7 有效结果；本轮未改 CLI、包装或资源根。尚无获授权的隔离 MCP endpoint，因此随包 session 初始化无法判断；没有启动服务或连接真实 Zotero。源码 pytest 只在资源根改动时适用，本轮不适用。
+- **T5（部分通过）**：复用 T1–T3 有效构建、安装与资源结果，以及 T4 两个有效 help 结果，均满足适用检查；session 子项沿用 T4 的无法判断结果。不增加专用检查。
+- **正式记录位置**：实现 SHA `a743b3268a1cc3198326dc7d19d42d103daaa45d`；平台 `aarch64-darwin`；共享 SHA `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`；本次运行目录 `/private/tmp/issue26-nix-QF4SR7`，汇总及命令日志在其 `output/`，两个消费者分别为 `consumer-tools` 和 `consumer-cleaner`。
 - **已存在的上游证据**：共享库在 `aarch64-darwin` 的 T1–T4（含 38 个单元检查及集成安装）已有 [正式记录](https://github.com/RekiDunois/agent-env-nix/blob/ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e/docs/validation.md)。按 Test Engineer Rule 不在本仓重复执行其通用校验。新 producer 构建/安装的业务结果必须由本仓正式入口确认；正式尝试与环境阻断按 §5.5 记录，仍不得连接真实 Zotero。
-- **审核与交接**：旧计划关于包划分与固定 CLI 的决定不变，可沿用未受影响的审核依据；共享文件所有权/故障处理变化影响执行计划 P1、P3、P4，测试步骤第二关的共享 SHA 和 T1–T3 接入方式需要定向复核。无独立子代理审核结果，不声称新计划已批准。负责人：计划审核者复核受影响关口；产品实现负责人更新锁文件/README；本地测试工程师执行上述仍需结果。
+- **审核与交接**：计划 P1–P4 定向复核及测试计划前两关记录见文件顶部；本节为本地正式结果，隔离 session 子项仍无法判断。产品实现及测试记录已完成，之后按本地执行技能完成独立实现符合性复核；此记录本身不代表合并批准。
 
 ### 5.9 本地准备预检（2026-10-16，PR #27 head `a4f55b5`）
 
@@ -415,5 +419,5 @@ fi
 
 ## 6. 当前状态
 
-执行计划 v5 和测试修订 `test-v5.2` 已写作待审候选，**Plan proposed review status: pending**；本次文档修改不代表独立审批、实现或测试通过。PR #27 现有产品仍锁定 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`，等待实现负责人将 `flake.nix`/`flake.lock` 与 README 更新至 `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`。旧版实施符合性和 T1–T5 结果保留在 §5.7；新共享库的 T1/T2/T3/T5 尚无正式执行结果。原 T4 两个 help 已通过，隔离 endpoint 初始化与源码 pytest 尚未判断。不得将共享库自身已通过的 Mac 测试当作本仓安装结果，或以旧版失败阻断冒充新版已失败。
+执行计划 v5 的 P1–P4 定向复核已通过，结论 `APPROVED`；测试修订 `test-v5.2` 的第一、第二关口已通过。PR #27 的实现提交 `a743b3268a1cc3198326dc7d19d42d103daaa45d` 已将 `flake.nix`/`flake.lock` 和 README 更新至共享 SHA `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`，并保留 nixpkgs 锁定值。新版 T1、T2、T3 通过；T4 复用两个 help 结果，但隔离 session 因无获授权 endpoint 而无法判断，源码兼容子项不适用；T5 的适用观察通过，session 子项无法判断。正式输出和日志在 `/private/tmp/issue26-nix-QF4SR7/output/`。旧版结果继续保留在 §5.7，不能替代本轮新版结果；共享库自身的 Mac 测试也不替代本仓构建与安装检查。实现符合性复核完成后再记录其结论；本状态不代表合并批准。
 
