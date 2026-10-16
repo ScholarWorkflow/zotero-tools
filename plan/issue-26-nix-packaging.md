@@ -1,7 +1,7 @@
 # Issue #26：复用 agent-env-nix 的 Zotero 独立分包计划
 
 - Requirement revision：2026-10-16 [Issue #26](https://github.com/ScholarWorkflow/zotero-tools/issues/26) 已同步 `agent-env-nix` PR #3 的选中技能/角色整体替换、MCP 配置保护及失败重跑约定；原两包业务目标不变。
-- Plan revision：`issue26-plan-v5-2026-10-16`，测试修订：`test-v5.1-2026-10-16`。本文件为 `plan/` 下唯一完整的执行与最小测试计划，代替 v4/test-v4.1；必测 T1–T5 上限不变。新版方案与步骤待独立复核。
+- Plan revision：`issue26-plan-v5-2026-10-16`，测试修订：`test-v5.2-2026-10-16`。本文件为 `plan/` 下唯一完整的执行与最小测试计划，代替 v4/test-v4.1；必测 T1–T5 上限不变。新版方案与步骤待独立复核。
 - Target revision：原业务基线 `7c39f03f0d6010e3e4ce8e51f7fc8ba761ef58d8`；本轮修订前 PR #27 head `cefd1cb3943ccfef362a1e8fdddcdfa6b0494e34`（包含旧共享库实现）。本次先修计划，Nix 锁文件和 README 的产品改动尚待实施。
 - Shared revision：升级目标为已合并的 [agent-env-nix PR #3](https://github.com/RekiDunois/agent-env-nix/pull/3)，固定 merge commit `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`；旧实现锁定 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`，只供历史记录引用，不视为新版本已验证。
 - Implementation revision：旧版已实现并测试的 producer `ae4b9d411589cea8728ae371787196c894f0d642`；其原 T1–T5 结果在 §5.7 保留。升级后的 producer SHA 和结果在实际提交/执行后填写，不把旧版通过结论迁移为新版通过。
@@ -71,7 +71,7 @@
 
 ## 5. 唯一最小测试计划
 
-测试修订：`test-v5.1-2026-10-16`。保持已批准的 T1–T5 及原预期，不增加用户编辑覆盖、迁移/回滚、大小写重命名、共享库配置来源或平台矩阵等新用例。共享 PR #3 的选中叶子替换与失败重跑已有苹果芯片 Mac T1–T4 记录，本仓只检验自己的包与正式部署。旧 SHA 的正式结果见 §5.7；新版按 §5.8 的影响范围执行，不能混报。
+测试修订：`test-v5.2-2026-10-16`。保持已批准的 T1–T5 及原预期，不增加用户编辑覆盖、迁移/回滚、大小写重命名、共享库配置来源或平台矩阵等新用例。共享 PR #3 的选中叶子替换与失败重跑已有苹果芯片 Mac T1–T4 记录，本仓只检验自己的包与正式部署。旧 SHA 的正式结果见 §5.7；新版按 §5.8 的影响范围执行，不能混报。
 
 | 项 | 输入/场景 | 预期与检查方法 |
 |---|---|---|
@@ -83,7 +83,7 @@
 
 ### 5.1 准备参数与正式共享入口
 
-以下为 producer 更新锁文件**之后**的唯一执行步骤。本次仅修订计划、尚未执行新版正式测试。执行者填入包含新共享锁定值的 `PRODUCER_SHA`；平台固定 `aarch64-darwin`，`SHARED_SHA` 必须等于 producer 的 `flake.lock`：`ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`。只有计划文字变化不触发复验；上游构建输入真实变化时只复核受影响目标。原结果见 §5.7、新版判定见 §5.8。沿用现成 Nix flakes、`uv`、Python >=3.11 和仓库读取权限，缺失仅暂停相关项，不新建通用测试设施。
+以下为 producer 更新锁文件**之后**的唯一执行步骤。本次只修订测试计划，尚未执行新版正式测试。执行者填入包含新共享锁定值的 `PRODUCER_SHA`；平台固定 `aarch64-darwin`，`SHARED_SHA` 必须等于 producer 的 `flake.lock`：`ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`。仅构建输入或适用行为变化才复核受影响目标；旧结果见 §5.7，新版判定见 §5.8。沿用既有 Nix、Python、uv、仓库权限和缓存；缺少某个工具时只暂停真正依赖它的子项。
 
 ```bash
 set -euo pipefail
@@ -93,21 +93,24 @@ export SHARED_SHA=ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e
 export REPO='ScholarWorkflow/zotero-tools'
 export REF="github:$REPO/$PRODUCER_SHA"
 export RUN="$(mktemp -d /tmp/issue26-nix-XXXXXX)"
-mkdir -p "$RUN/compose" "$RUN/output" "$RUN/work" "$RUN/cache" "$RUN/state" "$RUN/cache/nix"
+mkdir -p "$RUN/output" "$RUN/work" "$RUN/cache" "$RUN/state" "$RUN/cache/nix"
 export NIX_CACHE_HOME="$RUN/cache/nix"
 export XDG_CACHE_HOME="$RUN/cache" XDG_STATE_HOME="$RUN/state" TMPDIR="$RUN/work"
-export UV="$(command -v uv)" PYTHON="$(command -v python3)" UV_CACHE_DIR="$RUN/cache/uv"
+export UV="$(command -v uv || true)" PYTHON="$(command -v python3 || true)" UV_CACHE_DIR="$RUN/cache/uv"
+unset ZOTERO_MCP_URL
 ```
 
-源码目录只在 §5.3 的角色对照及适用时 §5.4 的源码兼容检查需要；公共准备不读取源码，避免源码路径获取失败阻断独立的构建与安装测试。
+公共准备不获取生产者源码目录、不构建包、不执行 `apply`，避免某一项的外部故障提前中断其他必测项。`ZOTERO_MCP_URL` 在本轮只允许由明确授权的隔离端点设置，禁止继承用户原有 Zotero 地址。
 
-不修改 HOME/CODEX_HOME、用户信任或已有 eval 服务。共享新版在没有选中的 MCP 项时不必读取外部 CODEX_HOME 配置；若实测仍有拒绝访问，记录实际故障并将受影响项标为无法判断，不修改产品保护或通过人为改写 CODEX_HOME 求通过。独立 Nix 缓存目录只用于避免已有只读缓存问题；仍受沙箱限制时按原审批处理。消费者位于仓库/worktree 外，所选路径须已获准用于隔离运行。实际需要Codex时通过既有eval命令显式传入 `--sandbox workspace-write`；不读取或审核eval服务的Codex信任名单，不增设预先信任检查，也不修改全局信任。只有真实执行返回权限问题时，才按运行环境结果处理。只记录实际 SHA、consumer 路径、安装命令和结果位置，不额外制作来源 manifest、hash 链或全环境快照。
+不修改 HOME/CODEX_HOME、用户信任或已有 eval 服务。共享新版在没有选中的 MCP 项时不必读取外部 CODEX_HOME 配置；若实测仍有拒绝访问，记录实际故障并仅将受影响项标为无法判断，不修改产品保护或通过人为改写 CODEX_HOME 求通过。独立 Nix 缓存目录只用于避免已有只读缓存问题；仍受沙箱限制时按原审批处理。消费者位于仓库/worktree 外，所选路径须已获准用于隔离运行。实际需要 Codex 时通过既有 eval 命令显式传入 `--sandbox workspace-write`；不读取或审核 eval 服务的 Codex 信任名单，不增设预先信任检查，也不修改全局信任。只有真实执行返回权限问题时，才按运行环境结果处理。只记录实际 SHA、consumer 路径、安装命令和结果位置，不额外制作来源 manifest、hash 链或全环境快照。
 
-下面的 `flake.nix` 是消费者配置，不是安装脚本；`ROOTS_NIX` 按后续各项明确选择。本例直接调用共享库，不建立本仓 consumer-view、复制器或配置合并器。
+下面只生成两个正式 `mkProject` 消费者配置，尚不安装。两个 `roots` 分别独立选择日常包和 cleaner；不建立本仓 consumer-view、复制器或配置合并器。
 
 ```bash
-export ROOTS_NIX='[ p.zotero-tools ]'
-cat > "$RUN/compose/flake.nix" <<EOF_NIX
+make_consumer_flake() {
+  local flake_dir="$1" roots="$2"
+  mkdir -p "$flake_dir"
+  cat > "$flake_dir/flake.nix" <<EOF_NIX
 {
   inputs.producer.url = "$REF";
   inputs.shared.url = "github:RekiDunois/agent-env-nix/$SHARED_SHA";
@@ -116,147 +119,263 @@ cat > "$RUN/compose/flake.nix" <<EOF_NIX
     pkgs = producer.inputs.nixpkgs.legacyPackages."$SYSTEM";
     p = producer.packages."$SYSTEM";
   in { packages."$SYSTEM".default = shared.lib.mkProject {
-    inherit pkgs; roots = $ROOTS_NIX;
+    inherit pkgs; roots = $roots;
   }; };
 }
 EOF_NIX
-export ENV_OUT="$(nix build "path:$RUN/compose#default" --no-link --print-out-paths)"
-export CONSUMER="$RUN/consumer"
-mkdir -p "$CONSUMER"
-"$ENV_OUT/bin/agent-env" apply --project "$CONSUMER"
-```
-
-后续改 roots 时只替换这个配置中的 roots 表达式，并通过同一 build/apply 入口部署到该项目；这是获批组合输入变化，不手改生成资源。需要独立选择断言时使用新的具名 consumer，其他项复用已有安装。不运行共享库 flake check/通用回归，也不在本仓重测共享配置冲突、并发、升级/卸载、GC、override 矩阵。
-
-### 5.2 T1 / T2：构建及独立安装
-
-首次 `ROOTS_NIX='[ p.zotero-tools ]'`。准备之后分别构建两个包，并通过正式profile入口保留日常三个CLI：
-
-```bash
-export TOOLS_OUT="$(nix build "$REF#zotero-tools" --no-link --print-out-paths)"
-export CLEANER_OUT="$(nix build "$REF#zotero-collection-cleaner" --no-link --print-out-paths)"
-nix profile install --profile "$RUN/profile-tools" "$REF#zotero-tools"
-export TOOLS_CONSUMER="$CONSUMER"
-find "$TOOLS_OUT/payload" -type f -print > "$RUN/output/tools-files.txt"
-for name in zotero-paper-tagger zotero-mcp-session zotero-item-export; do
-  test -x "$RUN/profile-tools/bin/$name" || exit 1
-done
-```
-
-查看已声明payload的资源清单，要求三完整技能、zotero-read的new-session.sh/zotero_item_export.py/item_export_core.py、tagger三个helpers和CORRESPONDENCE_SCHEMA.md完整；Nix允许改写的调用说明/解释器不要求与源逐字相等。不要重做闭包来源认证或运行时下载追踪。
-
-将5.1配置的roots仅替换为 `[ p.zotero-collection-cleaner ]`，运行：
-
-```bash
-export CLEANER_ENV="$(nix build "path:$RUN/compose#default" --no-link --print-out-paths)"
+}
+make_consumer_flake "$RUN/compose-tools" '[ p.zotero-tools ]'
+make_consumer_flake "$RUN/compose-cleaner" '[ p.zotero-collection-cleaner ]'
+export TOOLS_CONSUMER="$RUN/consumer-tools"
 export CLEANER_CONSUMER="$RUN/consumer-cleaner"
-mkdir -p "$CLEANER_CONSUMER"
-"$CLEANER_ENV/bin/agent-env" apply --project "$CLEANER_CONSUMER"
+mkdir -p "$TOOLS_CONSUMER" "$CLEANER_CONSUMER"
 ```
 
-这是第二包的独立选择，不是重复安装同一环境。default日常入口保持独立，不用聚合两包后猜cleaner是否默认带入。
+不运行共享库 flake check/通用回归，也不在本仓重测共享配置冲突、并发、升级/卸载、GC、override 矩阵。
 
-### 5.3 T3 / T5：资源与源角色对照
+### 5.2 T1 / T2：两包构建和独立部署
 
-下面直接读取本次正式安装文件及同SHA只读源；只做目标字段/资源断言，不调用APM转换，不运行整套projection测试，也不新增比较工具文件。同SHA源码根从 `nix flake metadata` 返回的 `path` 获取；若外部源码路径不可用，只将本段源角色对照及适用的源码兼容子项记为“无法判断”，不阻塞不依赖该路径的项目。
+先分别尝试两个包构建。每项命令放在条件判断中，即使一项失败也保留实际诊断并继续另一项。失败是产品问题还是环境阻断，按 §5.5 判定，不能只因命令退出非零就一律记为无法判断。
 
 ```bash
-if SOURCE="$(nix flake metadata --json "$REF" | jq -er '.path')" && [ -d "$SOURCE" ]; then
-  export SOURCE
-  "$UV" run --no-project --python "$PYTHON" - "$TOOLS_CONSUMER" "$CLEANER_CONSUMER" "$SOURCE" <<'PY'
-import pathlib,sys,tomllib
-regular,cleaner,source=map(pathlib.Path,sys.argv[1:])
+if TOOLS_OUT="$(nix build "$REF#zotero-tools" --no-link --print-out-paths)"; then
+  export TOOLS_OUT
+  if ! find "$TOOLS_OUT/payload" -type f -print > "$RUN/output/tools-files.txt"; then
+    echo 'T1: payload listing failed; record the actual cause' >&2
+  fi
+  if nix profile install --profile "$RUN/profile-tools" "$REF#zotero-tools"; then
+    TOOLS_PROFILE_OK=1
+    for name in zotero-paper-tagger zotero-mcp-session zotero-item-export; do
+      if [ ! -x "$RUN/profile-tools/bin/$name" ]; then
+        TOOLS_PROFILE_OK=0
+        echo "T1: missing profile CLI: $name" >&2
+      fi
+    done
+  else
+    echo 'T1: profile install failed; record the actual cause' >&2
+  fi
+else
+  echo 'T1: daily package build failed; record the actual cause' >&2
+fi
+
+if CLEANER_OUT="$(nix build "$REF#zotero-collection-cleaner" --no-link --print-out-paths)"; then
+  export CLEANER_OUT
+else
+  echo 'T2: cleaner package build failed; record the actual cause' >&2
+fi
+```
+
+查看 T1 的 payload 资源清单，要求三个完整技能、zotero-read 的 new-session.sh/zotero_item_export.py/item_export_core.py、tagger 三个 helpers 和 CORRESPONDENCE_SCHEMA.md；Nix 允许改写的调用说明/解释器不要求与源逐字相等。检查 cleaner 包清单只声明 cleaner 技能和角色，不能额外依赖日常/研究包。不要重做闭包来源认证或运行时下载追踪。
+
+然后按正式共享入口分别安装两个独立消费者；一方部署失败不阻止另一方及已建成的 profile 命令检查。`TOOLS_APPLIED`/`CLEANER_APPLIED` 仅表示本轮正式 `apply` 成功，不能代替 §5.3 的已安装资源检查。
+
+```bash
+if TOOLS_ENV="$(nix build "path:$RUN/compose-tools#default" --no-link --print-out-paths)" &&
+   "$TOOLS_ENV/bin/agent-env" apply --project "$TOOLS_CONSUMER"; then
+  TOOLS_APPLIED=1
+else
+  echo 'T3: daily consumer build/apply failed; record the actual cause' >&2
+fi
+
+if CLEANER_ENV="$(nix build "path:$RUN/compose-cleaner#default" --no-link --print-out-paths)" &&
+   "$CLEANER_ENV/bin/agent-env" apply --project "$CLEANER_CONSUMER"; then
+  CLEANER_APPLIED=1
+else
+  echo 'T2/T3: cleaner consumer build/apply failed; record the actual cause' >&2
+fi
+```
+
+这是两个独立选择的消费者；日常包默认仍不包含 cleaner。无需聚合两包，不直接修补安装生成物，不把一方安装失败记作另一方失败。
+
+### 5.3 T3 / T5：已安装资源与源角色对照
+
+先只检查本轮通过正式 `apply` 安装的文件；这些断言**不需要源码路径**。两个消费者的检查分别执行；没有安装成功的消费者不冒充已检查，已安装的一方仍继续。
+
+```bash
+if [ "${TOOLS_APPLIED:-0}" = 1 ] && [ -n "$PYTHON" ]; then
+  if "$PYTHON" - "$TOOLS_CONSUMER" <<'PY'
+import pathlib,sys
+regular=pathlib.Path(sys.argv[1])
 for name in ('zotero-read','zotero-collections','zotero-paper-tagger'):
     path=regular/'.agents/skills'/name
     assert path.is_dir() and not path.is_symlink()
     assert (path/'SKILL.md').is_file()
 assert not (regular/'.agents/skills/zotero-collection-cleaner').exists()
 assert not (regular/'.codex/agents/zotero-collection-cleaner.toml').exists()
+print('T3: daily installed resources match')
+PY
+  then
+    :
+  else
+    echo 'T3: daily installed resources check failed; record the actual cause' >&2
+  fi
+else
+  echo 'T3: daily resources check not run; apply or Python unavailable' >&2
+fi
+
+if [ "${CLEANER_APPLIED:-0}" = 1 ] && [ -n "$PYTHON" ]; then
+  if "$PYTHON" - "$CLEANER_CONSUMER" <<'PY'
+import pathlib,sys,tomllib
+cleaner=pathlib.Path(sys.argv[1])
 assert (cleaner/'.agents/skills/zotero-collection-cleaner/SKILL.md').is_file()
 assert not (cleaner/'.agents/skills/zotero-paper-tagger').exists()
+a=tomllib.loads((cleaner/'.codex/agents/zotero-collection-cleaner.toml').read_text())
+assert set(a)=={'name','description','developer_instructions'}
+assert a['name']=='zotero-collection-cleaner'
+print('T3: cleaner installed resources and role fields match')
+PY
+  then
+    :
+  else
+    echo 'T3: cleaner installed resources check failed; record the actual cause' >&2
+  fi
+else
+  echo 'T3: cleaner resources check not run; apply or Python unavailable' >&2
+fi
+```
+
+源码路径只用于**与同 SHA 原角色的描述/正文对照**，以及 §5.4 在确实受影响时执行的原源码入口兼容检查；两包构建、两个消费者安装、资源目录及 profile 命令检查均不依赖它。这里从 `nix flake metadata` 的 `path` 读取本轮固定 SHA 的只读源码，取不到只影响这两项；不要求重新获取已复用的有效源码兼容结果。
+
+```bash
+if SOURCE="$(nix flake metadata --json "$REF" | jq -er '.path')" && [ -d "$SOURCE" ]; then
+  export SOURCE
+else
+  unset SOURCE
+  echo 'T3 source comparison and applicable source compatibility: unable to judge; source path unavailable' >&2
+fi
+
+if [ "${CLEANER_APPLIED:-0}" = 1 ] && [ -n "${SOURCE:-}" ] && [ -n "$PYTHON" ]; then
+  if "$PYTHON" - "$CLEANER_CONSUMER" "$SOURCE" <<'PY'
+import pathlib,sys,tomllib
+cleaner,source=map(pathlib.Path,sys.argv[1:])
 a=tomllib.loads((cleaner/'.codex/agents/zotero-collection-cleaner.toml').read_text())
 lines=(source/'.apm/agents/zotero-collection-cleaner.agent.md').read_text().splitlines()
 end=lines.index('---',1)
 desc=next(s.split(':',1)[1].strip() for s in lines[1:end] if s.startswith('description:'))
 assert len(desc)>=2 and desc[0]==desc[-1] and desc[0] in ('"',"'")
-assert set(a)=={'name','description','developer_instructions'}
-assert a['name']=='zotero-collection-cleaner'
 assert a['description']==desc[1:-1]
 assert a['developer_instructions'].strip()=='\n'.join(lines[end+1:]).strip()
-print('T3: installed resources and canonical role match')
+print('T3: installed cleaner role matches same-SHA canonical source')
 PY
+  then
+    :
+  else
+    echo 'T3: cleaner role/source comparison failed; record the actual cause' >&2
+  fi
 else
-  unset SOURCE
-  echo 'T3 source comparison: unable to judge; flake source path unavailable' >&2
+  echo 'T3: role/source comparison not run; consumer, source or Python unavailable' >&2
 fi
 ```
 
-该源字段方法沿用当前 `test/apm_projection.py` 的已有比较规则；若实现时源角色格式确实改变，先修订这条比较方法，不靠APM通过结果替代Nix产物，也不把格式变化升级为业务/宿主认证。
+源字段方法沿用现有 `test/apm_projection.py` 的比较规则；若实现时源角色格式确实改变，先修订这条比较方法。不调用 APM 转换，不运行整套 projection 测试，不新增比较工具文件，也不把格式变化升级为宿主认证。
 
-### 5.4 T4：三个真实CLI与源码兼容
+### 5.4 T4：三个真实 CLI 与源码兼容
 
-前两个命令从仓库外执行，输出应为原help且exit 0，成功同时确认其所用Python模块可加载与资源入口可用：
+两个 `--help` 命令从仓库外独立执行，输出应保持既有帮助内容且退出码为 0，同时确认已安装命令能够加载所用 Python 模块和资源入口。正式 profile 不可用时只暂停依赖它的子项；一条帮助命令失败不阻止另一条。
 
 ```bash
 cd "$RUN/work"
-"$RUN/profile-tools/bin/zotero-paper-tagger" --help > "$RUN/output/tagger-help.txt"
-"$RUN/profile-tools/bin/zotero-item-export" --help > "$RUN/output/export-help.txt"
+if [ "${TOOLS_PROFILE_OK:-0}" = 1 ]; then
+  if "$RUN/profile-tools/bin/zotero-paper-tagger" --help > "$RUN/output/tagger-help.txt"; then
+    echo 'T4: tagger help succeeded'
+  else
+    echo 'T4: tagger help failed; record the actual cause' >&2
+  fi
+  if "$RUN/profile-tools/bin/zotero-item-export" --help > "$RUN/output/export-help.txt"; then
+    echo 'T4: item-export help succeeded'
+  else
+    echo 'T4: item-export help failed; record the actual cause' >&2
+  fi
+else
+  echo 'T4: installed help commands not run; daily profile unavailable' >&2
+fi
 ```
 
-第三个命令必须使用已经获授权的独占隔离回环MCP endpoint。执行者提供完整URL，记录它属于哪个现有隔离fixture即可；无需重复fixture来源/身份认证，不新建测试服务，不用默认真实Zotero。端点及权限缺失时只将此子项记无法判断。
+第三个命令只允许使用已经获授权的独占隔离回环 MCP 端点。执行者**明确设置**本轮现有 fixture 的完整地址；不从原环境继承 `ZOTERO_MCP_URL`，不连接默认真实 Zotero，不新建测试服务。端点或授权缺失时只记该子项无法判断，不阻止源码 `pytest` 或前两条帮助命令。
 
 ```bash
-export ZOTERO_MCP_URL='http://127.0.0.1:<本轮隔离端口>/mcp'
-"$UV" run --no-project --python "$PYTHON" - "$ZOTERO_MCP_URL" <<'PY'
+# 获得本轮隔离 fixture 授权后，执行者显式设置：
+# export ISOLATED_ZOTERO_MCP_URL='http://127.0.0.1:<本轮隔离端口>/mcp'
+if [ -n "${ISOLATED_ZOTERO_MCP_URL:-}" ] && [ -n "$PYTHON" ]; then
+  if "$PYTHON" - "$ISOLATED_ZOTERO_MCP_URL" <<'PY'
 import sys,urllib.parse
 u=urllib.parse.urlsplit(sys.argv[1])
 assert u.scheme=='http' and u.hostname=='127.0.0.1' and u.port and u.path=='/mcp'
 PY
-"$RUN/profile-tools/bin/zotero-mcp-session" > "$RUN/output/session-id.txt"
-test -s "$RUN/output/session-id.txt"
+  then
+    export ZOTERO_MCP_URL="$ISOLATED_ZOTERO_MCP_URL"
+    if [ "${TOOLS_PROFILE_OK:-0}" = 1 ]; then
+      if "$RUN/profile-tools/bin/zotero-mcp-session" > "$RUN/output/session-id.txt" &&
+         test -s "$RUN/output/session-id.txt"; then
+        echo 'T4: installed session initialized'
+      else
+        echo 'T4: installed session initialization failed or returned an empty ID; record the actual cause' >&2
+      fi
+    else
+      echo 'T4: installed session not run; daily profile unavailable' >&2
+    fi
+  else
+    echo 'T4: isolated MCP URL is invalid; do not connect to Zotero' >&2
+  fi
+else
+  echo 'T4: installed session not run; authorized isolated MCP URL or Python unavailable' >&2
+fi
 ```
 
-执行前确认该URL确是授权fixture；URL形状断言不代替授权。检查输出是非空会话标识，真实安装命令进入随包new-session.sh，只发送initialize，不执行业务读写/删除。空ID或命令失败不算通过；不以help/路径存在替代。T5直接复用这次及help的输出与可写TMPDIR，不加store全量快照。
+执行前人工确认该地址确为授权 fixture；URL 形式检查不代表授权。检查输出是非空会话标识，正式入口调用随包 new-session.sh，只发送 initialize，不执行业务读写/删除。命令失败或空 ID 不算通过，不能以 `--help` 或文件存在代替。T5 直接复用本段及构建/安装的有效结果与可写 TMPDIR，不加 store 全量快照。
 
-源码兼容只在本次确实修改tagger/session资源根时执行：从同SHA源读取。源码pytest子项需要执行环境提供 `DEV_PYTHON`：已有 pytest、版本不低于 3.11 的开发解释器绝对路径；不在线安装依赖。适用时从本机已存在的测试开发环境取得该绝对路径并设置 `DEV_PYTHON`，不要用 `command -v python3` 代选。只在该子项适用时预检路径、Python版本及pytest可运行性。若缺少该路径或其预检失败，只将源码pytest子项记为“无法判断／环境待准备”，继续session源码检查和其他独立必测项。若 §5.3 未取得 `SOURCE`，则跳过本段源码兼容命令，仅记受影响子项为“无法判断”；上面的三个 CLI 检查仍独立执行。下面用干净进程环境不传任何Nix资源根变量，明确保留开发解释器需要的PATH/HOME和隔离endpoint；执行现有 `test/test_entrypoints.py::test_tagger_help_is_available_from_any_cwd` 的无副作用检查。session源码路径用同一已授权隔离endpoint执行原模块：
+原源码兼容**仅在本轮确实修改 tagger/session 资源根时执行**：用 §5.3 的同 SHA 源，检查未设置 Nix 资源根时的既有路径。`DEV_PYTHON` 由现有开发环境提供，必须是已安装 pytest、版本不低于 3.11 的解释器绝对路径；不在线安装依赖，不用 `command -v python3` 猜测。若该解释器不可用，仅源码 pytest 子项无法判断；独立的源码 session 检查仍在授权隔离端点可用时尝试。源码路径取不到时，只暂停这两个源码兼容子项。
 
 ```bash
-# PYTHON用于源码session入口；UV与缓存路径在5.1中设置。
 if [ -n "${SOURCE:-}" ]; then
-cd "$RUN/work"
-if [ -n "${DEV_PYTHON:-}" ] && [ "${DEV_PYTHON#/}" != "$DEV_PYTHON" ] && [ -x "$DEV_PYTHON" ] && \
-  "$UV" run --no-project --python "$DEV_PYTHON" -- python -c \
-    'import sys; assert sys.version_info >= (3, 11); print(sys.version.split()[0])' \
-    > "$RUN/output/dev-python-version.txt" && \
-  "$UV" run --no-project --python "$DEV_PYTHON" -- python -m pytest --version \
-    > "$RUN/output/pytest-version.txt"; then
-  env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" UV_CACHE_DIR="$UV_CACHE_DIR" PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH="$SOURCE" "$UV" run --no-project --python "$DEV_PYTHON" -- python -m pytest -q -p no:cacheprovider \
-    "$SOURCE/test/test_entrypoints.py::test_tagger_help_is_available_from_any_cwd"
+  cd "$RUN/work"
+  if [ -n "${DEV_PYTHON:-}" ] && [ "${DEV_PYTHON#/}" != "$DEV_PYTHON" ] &&
+     [ -x "$DEV_PYTHON" ] && [ -n "$UV" ] &&
+     "$UV" run --no-project --python "$DEV_PYTHON" -- python -c \
+       'import sys; assert sys.version_info >= (3, 11); print(sys.version.split()[0])' \
+       > "$RUN/output/dev-python-version.txt" &&
+     "$UV" run --no-project --python "$DEV_PYTHON" -- python -m pytest --version \
+       > "$RUN/output/pytest-version.txt"; then
+    if env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" UV_CACHE_DIR="$UV_CACHE_DIR" PYTHONDONTWRITEBYTECODE=1 \
+       PYTHONPATH="$SOURCE" "$UV" run --no-project --python "$DEV_PYTHON" -- python -m pytest -q -p no:cacheprovider \
+       "$SOURCE/test/test_entrypoints.py::test_tagger_help_is_available_from_any_cwd"; then
+      echo 'T4: source pytest compatibility succeeded'
+    else
+      echo 'T4: source pytest compatibility failed; record the actual cause' >&2
+    fi
+  else
+    echo 'T4: source pytest compatibility not run; existing Python >=3.11 with pytest unavailable' >&2
+  fi
+
+  if [ -n "${ZOTERO_MCP_URL:-}" ] && [ -n "$UV" ] && [ -n "$PYTHON" ]; then
+    if env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" UV_CACHE_DIR="$UV_CACHE_DIR" PYTHONDONTWRITEBYTECODE=1 \
+       ZOTERO_MCP_URL="$ZOTERO_MCP_URL" PYTHONPATH="$SOURCE" \
+       "$UV" run --no-project --python "$PYTHON" -- python -m zotero_tools.session \
+       > "$RUN/output/source-session-id.txt" &&
+       test -s "$RUN/output/source-session-id.txt"; then
+      echo 'T4: source session compatibility succeeded'
+    else
+      echo 'T4: source session compatibility failed or returned an empty ID; record the actual cause' >&2
+    fi
+  else
+    echo 'T4: source session not run; authorized isolated endpoint or existing Python/uv unavailable' >&2
+  fi
 else
-  echo 'Source pytest compatibility: unable to judge; provide an existing Python >=3.11 absolute path with pytest.' >&2
-fi
-env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" UV_CACHE_DIR="$UV_CACHE_DIR" PYTHONDONTWRITEBYTECODE=1 \
-  ZOTERO_MCP_URL="$ZOTERO_MCP_URL" PYTHONPATH="$SOURCE" \
-  "$UV" run --no-project --python "$PYTHON" -- python -m zotero_tools.session \
-  > "$RUN/output/source-session-id.txt"
-test -s "$RUN/output/source-session-id.txt"
-else
-  echo 'Source compatibility: unable to judge; flake source path unavailable' >&2
+  echo 'T4: source compatibility not run; source path unavailable' >&2
 fi
 ```
 
-仅当该源码兼容行为受实现影响才运行，endpoint沿用上一个隔离fixture；源未改注明复用。这里的PYTHONPATH只用于既有源码兼容目标，不能用于安装CLI或修补消费者。无已备开发环境只阻塞对应兼容检查，不能用全套APM/endpoint测试替代。
+仅当源码兼容行为受本次实现影响时运行，否则注明复用旧结果。`PYTHONPATH` 只用于既有源码兼容目标，不能用于安装 CLI 或修补消费者。不得用全套 APM/endpoint 测试替代。
 
 ### 5.5 权限、失败、清理和结果
 
 [skills-test-fixtures PR #43](https://github.com/RekiDunois/skills-test-fixtures/pull/43) 只在实际使用既有fixture时约束隔离权限，不额外引入manifest/hash/信任来源/调用树检查。本计划无需启动Codex/OpenCode，无需读改全局信任。角色接入由正式安装文件判断，不要求模型调用cleaner。
 
-缺Nix/依赖/端点/权限时仅相关项无法判断，其他独立项继续。环境错误最小诊断，同条件最多一次额外重试；产品断言失败不刷重试。必要输出留RUN，正式文件记T1–T5结果、未完成原因与复用记录，不新建证据平台。不调用真实Zotero、不实际清理/标签写入。
+缺 Nix/依赖/端点/权限时只暂停受阻的子项，其他独立项继续；产品断言失败记录业务失败，外部环境阻断记无法判断，不能将二者混报。命令退出非零时先记录实际诊断，不以打印的提示代替判定。环境错误最小诊断，同条件最多一次额外重试；产品断言失败不刷重试。必要输出留RUN，正式文件记T1–T5结果、未完成原因与复用记录，不新建证据平台。不调用真实Zotero、不实际清理/标签写入。
 
 收尾可用两个各自环境的 `agent-env remove --project` 移除本次托管资源，解除临时profile引用后保留输出供复核；这只是清理，不新增共享生命周期验收。不终止外部负责人提供的fixture，不按进程名杀进程。源码/APM/OpenCode/uv未受影响的既有结果继续有效。
 
-历史记录：2026-10-15 的 `test-v4.1` 第一、第二关口通过，仅覆盖当时的旧共享库步骤。`test-v5.1` 的变化只涉及共享 SHA、受影响的项目接入及相应结果引用，修订后按测试规则复核；不能沿用旧版本对新增步骤的批准。
+历史记录：2026-10-15 的 `test-v4.1` 第一、第二关口通过，仅覆盖当时的旧共享库步骤。`test-v5.2` 保留原 T1–T5 目标，修正独立检查的失败隔离和源码路径条件；共享版本变化的受影响结果仍按 §5.8 复核；不能沿用旧版本对新增步骤的批准。
 
 ### 5.6 旧版准备预检（2026-10-15，历史记录）
 
@@ -288,5 +407,5 @@ fi
 
 ## 6. 当前状态
 
-执行计划 v5 和测试修订 `test-v5.1` 已写作待审候选，**Plan proposed review status: pending**；本次文档修改不代表独立审批、实现或测试通过。PR #27 现有产品仍锁定 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`，等待实现负责人将 `flake.nix`/`flake.lock` 与 README 更新至 `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`。旧版实施符合性和 T1–T5 结果保留在 §5.7；新共享库的 T1/T2/T3/T5 尚无正式执行结果。原 T4 两个 help 已通过，隔离 endpoint 初始化与源码 pytest 尚未判断。不得将共享库自身已通过的 Mac 测试当作本仓安装结果，或以旧版失败阻断冒充新版已失败。
+执行计划 v5 和测试修订 `test-v5.2` 已写作待审候选，**Plan proposed review status: pending**；本次文档修改不代表独立审批、实现或测试通过。PR #27 现有产品仍锁定 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`，等待实现负责人将 `flake.nix`/`flake.lock` 与 README 更新至 `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`。旧版实施符合性和 T1–T5 结果保留在 §5.7；新共享库的 T1/T2/T3/T5 尚无正式执行结果。原 T4 两个 help 已通过，隔离 endpoint 初始化与源码 pytest 尚未判断。不得将共享库自身已通过的 Mac 测试当作本仓安装结果，或以旧版失败阻断冒充新版已失败。
 
