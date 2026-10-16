@@ -1,7 +1,7 @@
 # Issue #26：复用 agent-env-nix 的 Zotero 独立分包计划
 
 - Requirement revision：2026-10-16 [Issue #26](https://github.com/ScholarWorkflow/zotero-tools/issues/26) 已同步 `agent-env-nix` PR #3 的选中技能/角色整体替换、MCP 配置保护及失败重跑约定；原两包业务目标不变。
-- Plan revision：`issue26-plan-v5-2026-10-16`，测试修订：`test-v5.0-2026-10-16`。本文件为 `plan/` 下唯一完整的执行与最小测试计划，代替 v4/test-v4.1；必测 T1–T5 上限不变。新版方案与步骤待独立复核。
+- Plan revision：`issue26-plan-v5-2026-10-16`，测试修订：`test-v5.1-2026-10-16`。本文件为 `plan/` 下唯一完整的执行与最小测试计划，代替 v4/test-v4.1；必测 T1–T5 上限不变。新版方案与步骤待独立复核。
 - Target revision：原业务基线 `7c39f03f0d6010e3e4ce8e51f7fc8ba761ef58d8`；本轮修订前 PR #27 head `cefd1cb3943ccfef362a1e8fdddcdfa6b0494e34`（包含旧共享库实现）。本次先修计划，Nix 锁文件和 README 的产品改动尚待实施。
 - Shared revision：升级目标为已合并的 [agent-env-nix PR #3](https://github.com/RekiDunois/agent-env-nix/pull/3)，固定 merge commit `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`；旧实现锁定 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`，只供历史记录引用，不视为新版本已验证。
 - Implementation revision：旧版已实现并测试的 producer `ae4b9d411589cea8728ae371787196c894f0d642`；其原 T1–T5 结果在 §5.7 保留。升级后的 producer SHA 和结果在实际提交/执行后填写，不把旧版通过结论迁移为新版通过。
@@ -71,7 +71,7 @@
 
 ## 5. 唯一最小测试计划
 
-测试修订：`test-v5.0-2026-10-16`。保持已批准的 T1–T5 及原预期，不增加用户编辑覆盖、迁移/回滚、大小写重命名、共享库配置来源或平台矩阵等新用例。共享 PR #3 的选中叶子替换与失败重跑已有苹果芯片 Mac T1–T4 记录，本仓只检验自己的包与正式部署。旧 SHA 的正式结果见 §5.7；新版按 §5.8 的影响范围执行，不能混报。
+测试修订：`test-v5.1-2026-10-16`。保持已批准的 T1–T5 及原预期，不增加用户编辑覆盖、迁移/回滚、大小写重命名、共享库配置来源或平台矩阵等新用例。共享 PR #3 的选中叶子替换与失败重跑已有苹果芯片 Mac T1–T4 记录，本仓只检验自己的包与正式部署。旧 SHA 的正式结果见 §5.7；新版按 §5.8 的影响范围执行，不能混报。
 
 | 项 | 输入/场景 | 预期与检查方法 |
 |---|---|---|
@@ -97,8 +97,9 @@ mkdir -p "$RUN/compose" "$RUN/output" "$RUN/work" "$RUN/cache" "$RUN/state" "$RU
 export NIX_CACHE_HOME="$RUN/cache/nix"
 export XDG_CACHE_HOME="$RUN/cache" XDG_STATE_HOME="$RUN/state" TMPDIR="$RUN/work"
 export UV="$(command -v uv)" PYTHON="$(command -v python3)" UV_CACHE_DIR="$RUN/cache/uv"
-export SOURCE="$(nix eval --raw "$REF#outPath")"
 ```
+
+源码目录只在 §5.3 的角色对照及适用时 §5.4 的源码兼容检查需要；公共准备不读取源码，避免源码路径获取失败阻断独立的构建与安装测试。
 
 不修改 HOME/CODEX_HOME、用户信任或已有 eval 服务。共享新版在没有选中的 MCP 项时不必读取外部 CODEX_HOME 配置；若实测仍有拒绝访问，记录实际故障并将受影响项标为无法判断，不修改产品保护或通过人为改写 CODEX_HOME 求通过。独立 Nix 缓存目录只用于避免已有只读缓存问题；仍受沙箱限制时按原审批处理。消费者位于仓库/worktree 外，所选路径须已获准用于隔离运行。实际需要Codex时通过既有eval命令显式传入 `--sandbox workspace-write`；不读取或审核eval服务的Codex信任名单，不增设预先信任检查，也不修改全局信任。只有真实执行返回权限问题时，才按运行环境结果处理。只记录实际 SHA、consumer 路径、安装命令和结果位置，不额外制作来源 manifest、hash 链或全环境快照。
 
@@ -157,10 +158,12 @@ mkdir -p "$CLEANER_CONSUMER"
 
 ### 5.3 T3 / T5：资源与源角色对照
 
-下面直接读取本次正式安装文件及同SHA只读源；只做目标字段/资源断言，不调用APM转换，不运行整套projection测试，也不新增比较工具文件。
+下面直接读取本次正式安装文件及同SHA只读源；只做目标字段/资源断言，不调用APM转换，不运行整套projection测试，也不新增比较工具文件。同SHA源码根从 `nix flake metadata` 返回的 `path` 获取；若外部源码路径不可用，只将本段源角色对照及适用的源码兼容子项记为“无法判断”，不阻塞不依赖该路径的项目。
 
 ```bash
-"$UV" run --no-project --python "$PYTHON" - "$TOOLS_CONSUMER" "$CLEANER_CONSUMER" "$SOURCE" <<'PY'
+if SOURCE="$(nix flake metadata --json "$REF" | jq -er '.path')" && [ -d "$SOURCE" ]; then
+  export SOURCE
+  "$UV" run --no-project --python "$PYTHON" - "$TOOLS_CONSUMER" "$CLEANER_CONSUMER" "$SOURCE" <<'PY'
 import pathlib,sys,tomllib
 regular,cleaner,source=map(pathlib.Path,sys.argv[1:])
 for name in ('zotero-read','zotero-collections','zotero-paper-tagger'):
@@ -182,6 +185,10 @@ assert a['description']==desc[1:-1]
 assert a['developer_instructions'].strip()=='\n'.join(lines[end+1:]).strip()
 print('T3: installed resources and canonical role match')
 PY
+else
+  unset SOURCE
+  echo 'T3 source comparison: unable to judge; flake source path unavailable' >&2
+fi
 ```
 
 该源字段方法沿用当前 `test/apm_projection.py` 的已有比较规则；若实现时源角色格式确实改变，先修订这条比较方法，不靠APM通过结果替代Nix产物，也不把格式变化升级为业务/宿主认证。
@@ -211,10 +218,11 @@ test -s "$RUN/output/session-id.txt"
 
 执行前确认该URL确是授权fixture；URL形状断言不代替授权。检查输出是非空会话标识，真实安装命令进入随包new-session.sh，只发送initialize，不执行业务读写/删除。空ID或命令失败不算通过；不以help/路径存在替代。T5直接复用这次及help的输出与可写TMPDIR，不加store全量快照。
 
-源码兼容只在本次确实修改tagger/session资源根时执行：从同SHA源读取。源码pytest子项需要执行环境提供 `DEV_PYTHON`：已有 pytest、版本不低于 3.11 的开发解释器绝对路径；不在线安装依赖。适用时从本机已存在的测试开发环境取得该绝对路径并设置 `DEV_PYTHON`，不要用 `command -v python3` 代选。只在该子项适用时预检路径、Python版本及pytest可运行性。若缺少该路径或其预检失败，只将源码pytest子项记为“无法判断／环境待准备”，继续session源码检查和其他独立必测项。下面用干净进程环境不传任何Nix资源根变量，明确保留开发解释器需要的PATH/HOME和隔离endpoint；执行现有 `test/test_entrypoints.py::test_tagger_help_is_available_from_any_cwd` 的无副作用检查。session源码路径用同一已授权隔离endpoint执行原模块：
+源码兼容只在本次确实修改tagger/session资源根时执行：从同SHA源读取。源码pytest子项需要执行环境提供 `DEV_PYTHON`：已有 pytest、版本不低于 3.11 的开发解释器绝对路径；不在线安装依赖。适用时从本机已存在的测试开发环境取得该绝对路径并设置 `DEV_PYTHON`，不要用 `command -v python3` 代选。只在该子项适用时预检路径、Python版本及pytest可运行性。若缺少该路径或其预检失败，只将源码pytest子项记为“无法判断／环境待准备”，继续session源码检查和其他独立必测项。若 §5.3 未取得 `SOURCE`，则跳过本段源码兼容命令，仅记受影响子项为“无法判断”；上面的三个 CLI 检查仍独立执行。下面用干净进程环境不传任何Nix资源根变量，明确保留开发解释器需要的PATH/HOME和隔离endpoint；执行现有 `test/test_entrypoints.py::test_tagger_help_is_available_from_any_cwd` 的无副作用检查。session源码路径用同一已授权隔离endpoint执行原模块：
 
 ```bash
 # PYTHON用于源码session入口；UV与缓存路径在5.1中设置。
+if [ -n "${SOURCE:-}" ]; then
 cd "$RUN/work"
 if [ -n "${DEV_PYTHON:-}" ] && [ "${DEV_PYTHON#/}" != "$DEV_PYTHON" ] && [ -x "$DEV_PYTHON" ] && \
   "$UV" run --no-project --python "$DEV_PYTHON" -- python -c \
@@ -233,6 +241,9 @@ env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" UV_CACHE_DIR="$UV_CACHE_DIR" P
   "$UV" run --no-project --python "$PYTHON" -- python -m zotero_tools.session \
   > "$RUN/output/source-session-id.txt"
 test -s "$RUN/output/source-session-id.txt"
+else
+  echo 'Source compatibility: unable to judge; flake source path unavailable' >&2
+fi
 ```
 
 仅当该源码兼容行为受实现影响才运行，endpoint沿用上一个隔离fixture；源未改注明复用。这里的PYTHONPATH只用于既有源码兼容目标，不能用于安装CLI或修补消费者。无已备开发环境只阻塞对应兼容检查，不能用全套APM/endpoint测试替代。
@@ -245,7 +256,7 @@ test -s "$RUN/output/source-session-id.txt"
 
 收尾可用两个各自环境的 `agent-env remove --project` 移除本次托管资源，解除临时profile引用后保留输出供复核；这只是清理，不新增共享生命周期验收。不终止外部负责人提供的fixture，不按进程名杀进程。源码/APM/OpenCode/uv未受影响的既有结果继续有效。
 
-历史记录：2026-10-15 的 `test-v4.1` 第一、第二关口通过，仅覆盖当时的旧共享库步骤。`test-v5.0` 的变化只涉及共享 SHA、受影响的项目接入及相应结果引用，修订后按测试规则复核；不能沿用旧版本对新增步骤的批准。
+历史记录：2026-10-15 的 `test-v4.1` 第一、第二关口通过，仅覆盖当时的旧共享库步骤。`test-v5.1` 的变化只涉及共享 SHA、受影响的项目接入及相应结果引用，修订后按测试规则复核；不能沿用旧版本对新增步骤的批准。
 
 ### 5.6 旧版准备预检（2026-10-15，历史记录）
 
@@ -277,5 +288,5 @@ test -s "$RUN/output/source-session-id.txt"
 
 ## 6. 当前状态
 
-执行计划 v5 和测试修订 `test-v5.0` 已写作待审候选，**Plan proposed review status: pending**；本次文档修改不代表独立审批、实现或测试通过。PR #27 现有产品仍锁定 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`，等待实现负责人将 `flake.nix`/`flake.lock` 与 README 更新至 `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`。旧版实施符合性和 T1–T5 结果保留在 §5.7；新共享库的 T1/T2/T3/T5 尚无正式执行结果。原 T4 两个 help 已通过，隔离 endpoint 初始化与源码 pytest 尚未判断。不得将共享库自身已通过的 Mac 测试当作本仓安装结果，或以旧版失败阻断冒充新版已失败。
+执行计划 v5 和测试修订 `test-v5.1` 已写作待审候选，**Plan proposed review status: pending**；本次文档修改不代表独立审批、实现或测试通过。PR #27 现有产品仍锁定 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`，等待实现负责人将 `flake.nix`/`flake.lock` 与 README 更新至 `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`。旧版实施符合性和 T1–T5 结果保留在 §5.7；新共享库的 T1/T2/T3/T5 尚无正式执行结果。原 T4 两个 help 已通过，隔离 endpoint 初始化与源码 pytest 尚未判断。不得将共享库自身已通过的 Mac 测试当作本仓安装结果，或以旧版失败阻断冒充新版已失败。
 
