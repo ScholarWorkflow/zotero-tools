@@ -1,7 +1,7 @@
 # Issue #26：复用 agent-env-nix 的 Zotero 独立分包计划
 
 - Requirement revision：2026-10-16 [Issue #26](https://github.com/ScholarWorkflow/zotero-tools/issues/26) 已同步 `agent-env-nix` PR #3 的选中技能/角色整体替换、MCP 配置保护及失败重跑约定；原两包业务目标不变。
-- Plan revision：`issue26-plan-v5-2026-10-16`，测试修订：`test-v5.2-2026-10-16`。本文件为 `plan/` 下唯一完整的执行与最小测试计划，代替 v4/test-v4.1；必测 T1–T5 上限不变。执行计划 v5 的 P1–P4 定向复核于 2026-10-16 在 PR #27 评论 #6208524042 全部通过，结论为 `APPROVED`；测试计划第一、第二关口于评论 #6209172543 通过，第三关口结果见 §5.8。
+- Plan revision：`issue26-plan-v5-2026-10-16`，测试修订：`test-v5.3-2026-10-16`。本文件为 `plan/` 下唯一完整的执行与最小测试计划，代替 v4/test-v4.1；必测 T1–T5 上限不变。执行计划 v5 的 P1–P4 定向复核于 2026-10-16 在 PR #27 评论 #6208524042 全部通过，结论为 `APPROVED`；测试 v5.2 第一、第二关的旧审核记录保留；本轮 v5.3 只补齐 T4 隔离服务启动和清理步骤，第一关沿用，新增步骤的第二关待独立复核；第三关历史结果见 §5.8。
 - Target revision：原业务基线 `7c39f03f0d6010e3e4ce8e51f7fc8ba761ef58d8`；本轮计划修订前 PR #27 head `cefd1cb3943ccfef362a1e8fdddcdfa6b0494e34`（包含旧共享库实现）。新版实现提交和测试结果分别见顶部 Implementation revision 与 §5.8。
 - Shared revision：升级目标为已合并的 [agent-env-nix PR #3](https://github.com/RekiDunois/agent-env-nix/pull/3)，固定 merge commit `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`；旧实现锁定 `760c1bf60e8ec19d1985660ec5e3276a8ef80b5a`，只供历史记录引用，不视为新版本已验证。
 - Implementation revision：旧版已实现并测试的 producer `ae4b9d411589cea8728ae371787196c894f0d642`；其原 T1–T5 结果在 §5.7 保留。本轮升级 producer 为 `a743b3268a1cc3198326dc7d19d42d103daaa45d`，新版结果单列于 §5.8，不把旧版通过结论迁移为新版通过。
@@ -71,7 +71,7 @@
 
 ## 5. 唯一最小测试计划
 
-测试修订：`test-v5.2-2026-10-16`。保持已批准的 T1–T5 及原预期，不增加用户编辑覆盖、迁移/回滚、大小写重命名、共享库配置来源或平台矩阵等新用例。共享 PR #3 的选中叶子替换与失败重跑已有苹果芯片 Mac T1–T4 记录，本仓只检验自己的包与正式部署。旧 SHA 的正式结果见 §5.7；新版按 §5.8 的影响范围执行，不能混报。
+测试修订：`test-v5.3-2026-10-16`。仅补齐 T4 隔离 Zotero 服务的实际准备、启动和清理命令；保持已批准的 T1–T5 及原预期，不增加用户编辑覆盖、迁移/回滚、大小写重命名、共享库配置来源或平台矩阵等新用例。共享 PR #3 的选中叶子替换与失败重跑已有苹果芯片 Mac T1–T4 记录，本仓只检验自己的包与正式部署。旧 SHA 的正式结果见 §5.7；新版按 §5.8 的影响范围执行，不能混报。
 
 | 项 | 输入/场景 | 预期与检查方法 |
 |---|---|---|
@@ -83,7 +83,7 @@
 
 ### 5.1 准备参数与正式共享入口
 
-以下为 producer 更新锁文件**之后**的唯一执行步骤。本次只修订测试计划，尚未执行新版正式测试。执行者填入包含新共享锁定值的 `PRODUCER_SHA`；平台固定 `aarch64-darwin`，`SHARED_SHA` 必须等于 producer 的 `flake.lock`：`ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`。仅构建输入或适用行为变化才复核受影响目标；旧结果见 §5.7，新版判定见 §5.8。沿用既有 Nix、Python、uv、仓库权限和缓存；缺少某个工具时只暂停真正依赖它的子项。
+以下是已升级共享依赖的 producer 的正式执行步骤，§5.8 已记录当时的执行结果；本轮仅修改尚未完成的 T4 会话子项的环境准备，不重复 T1–T3 已通过项目。执行者填入包含新共享锁定值的 `PRODUCER_SHA`；平台固定 `aarch64-darwin`，`SHARED_SHA` 必须等于 producer 的 `flake.lock`：`ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`。仅构建输入或适用行为变化才复核受影响目标；旧结果见 §5.7，新版判定见 §5.8。沿用既有 Nix、Python、uv、仓库权限和缓存；缺少某个工具时只暂停真正依赖它的子项。
 
 ```bash
 set -euo pipefail
@@ -98,7 +98,7 @@ mkdir -p "$RUN/output" "$RUN/work" "$RUN/cache" "$RUN/state" "$RUN/cache/nix"
 export NIX_CACHE_HOME="$RUN/cache/nix"
 export XDG_CACHE_HOME="$RUN/cache" XDG_STATE_HOME="$RUN/state" TMPDIR="$RUN/work"
 export UV="$(command -v uv || true)" PYTHON="$(command -v python3 || true)" UV_CACHE_DIR="$RUN/cache/uv"
-unset ZOTERO_MCP_URL
+unset ZOTERO_MCP_URL ISOLATED_ZOTERO_MCP_URL
 ```
 
 公共准备不获取生产者源码目录、不构建包、不执行 `apply`，避免某一项的外部故障提前中断其他必测项。`ZOTERO_MCP_URL` 在本轮只允许由明确授权的隔离端点设置，禁止继承用户原有 Zotero 地址。
@@ -272,17 +272,31 @@ fi
 
 ### 5.4 T4：三个真实 CLI 与源码兼容
 
-两个 `--help` 命令从仓库外独立执行，输出应保持既有帮助内容且退出码为 0，同时确认已安装命令能够加载所用 Python 模块和资源入口。正式 profile 不可用时只暂停依赖它的子项；一条帮助命令失败不阻止另一条。
+两个 `--help` 命令从仓库外独立执行，输出应保持既有帮助内容且退出码为 0，同时确认已安装命令能够加载所用 Python 模块和资源入口。正式 profile 不可用时只暂停依赖它的子项；一条帮助命令失败不阻止另一条。§5.8 两个已通过的 `--help` 结果在 CLI 未改变时直接复用，不因补测会话重复运行。
+
+**仅补测未完成的会话子项时**，由本地测试工程师新建本次独占的 `$RUN/output`（沿用 §5.1 的目录初始化即可），并把 `TOOLS_PROFILE_DIR` 设为 §5.8 已验证且仍可执行的 profile，例如 `/private/tmp/issue26-nix-QF4SR7/profile-tools`；其实际有效性须以仍能执行已安装 `zotero-mcp-session` 为准。不要重跑 §5.2–§5.3 的构建/部署和两个已通过的帮助命令。原 profile 失效时才按 §5.2 的正式安装路径重新准备。完整首次执行保持默认的 `$RUN/profile-tools`。
+
+```bash
+# 本轮单独补测时由本地测试工程师指定此前有效的 profile：
+# export TOOLS_PROFILE_DIR='/private/tmp/issue26-nix-QF4SR7/profile-tools'
+export TOOLS_PROFILE_DIR="${TOOLS_PROFILE_DIR:-$RUN/profile-tools}"
+if [ -x "$TOOLS_PROFILE_DIR/bin/zotero-mcp-session" ]; then
+  TOOLS_PROFILE_OK=1
+else
+  TOOLS_PROFILE_OK=0
+  echo 'T4: installed session CLI unavailable; prepare/reuse a valid profile before the session subcase' >&2
+fi
+```
 
 ```bash
 cd "$RUN/work"
 if [ "${TOOLS_PROFILE_OK:-0}" = 1 ]; then
-  if "$RUN/profile-tools/bin/zotero-paper-tagger" --help > "$RUN/output/tagger-help.txt"; then
+  if "$TOOLS_PROFILE_DIR/bin/zotero-paper-tagger" --help > "$RUN/output/tagger-help.txt"; then
     echo 'T4: tagger help succeeded'
   else
     echo 'T4: tagger help failed; record the actual cause' >&2
   fi
-  if "$RUN/profile-tools/bin/zotero-item-export" --help > "$RUN/output/export-help.txt"; then
+  if "$TOOLS_PROFILE_DIR/bin/zotero-item-export" --help > "$RUN/output/export-help.txt"; then
     echo 'T4: item-export help succeeded'
   else
     echo 'T4: item-export help failed; record the actual cause' >&2
@@ -292,11 +306,61 @@ else
 fi
 ```
 
-第三个命令只允许使用已经获授权的独占隔离回环 MCP 端点。执行者**明确设置**本轮现有 fixture 的完整地址；不从原环境继承 `ZOTERO_MCP_URL`，不连接默认真实 Zotero，不新建测试服务。端点或授权缺失时只记该子项无法判断，不阻止源码 `pytest` 或前两条帮助命令。
+第三个命令只连接**本次获准启动或复用的独占 Zotero 测试实例**。现成的 macOS 启动入口是 [`skills-test-fixtures/scripts/start_zotero_test_fixture_macos.sh`](https://github.com/RekiDunois/skills-test-fixtures/blob/master/scripts/start_zotero_test_fixture_macos.sh)：它使用独立 profile、数据目录及动态分配的本机 HTTP/MCP 端口，启动后生成 `fixture.env`，其中包含实际 `ZOTERO_MCP_URL`。本仓 [`test/integration/run_headless_zotero_mcp.sh`](https://github.com/ScholarWorkflow/zotero-tools/blob/master/test/integration/run_headless_zotero_mcp.sh) 专供 Linux x86_64 无界面集成测试，且会创建测试文献并执行导出，不适用于本次 `aarch64-darwin` 的 T4 会话初始化；不要运行该 Linux 脚本或为 T4 新建服务实现。
+
+本地测试工程师在运行前确认获准启动隔离 Zotero 实例，设置 `FIXTURE_REPO` 为**已有** `skills-test-fixtures` 仓库的绝对路径，并记录实际提交；本次已启动且仍独占的实例可直接提供其 `ZOTERO_FIXTURE_ENV` 路径以复用。仅当共享 Zotero 插件资源尚未准备或已失效时运行一次正式资源准备入口；不要重复下载有效缓存。下列启动准备失败只影响 T4 的会话初始化，不能阻断两个已通过的帮助命令或其他独立检查。不得连接真实 Zotero 的默认 `23120` 端口。
 
 ```bash
-# 获得本轮隔离 fixture 授权后，执行者显式设置：
-# export ISOLATED_ZOTERO_MCP_URL='http://127.0.0.1:<本轮隔离端口>/mcp'
+# 测试工程师填写本机已存在的 fixture 仓库根目录，首次启动前须获授权：
+# export FIXTURE_REPO='/绝对路径/skills-test-fixtures'
+# 若已有本轮仍独占的正式隔离实例，则指定其现存环境文件并跳过启动：
+# export ZOTERO_FIXTURE_ENV='/此前测试运行目录/fixture.env'
+ZOTERO_FIXTURE_STARTED_HERE=0
+unset ZOTERO_MCP_URL ISOLATED_ZOTERO_MCP_URL
+if [ -n "${ZOTERO_FIXTURE_ENV:-}" ] && [ -f "$ZOTERO_FIXTURE_ENV" ]; then
+  if source "$ZOTERO_FIXTURE_ENV"; then
+    export ISOLATED_ZOTERO_MCP_URL="${ZOTERO_MCP_URL:-}"
+  else
+    echo 'T4: existing fixture environment could not be loaded' >&2
+  fi
+elif [ -n "${FIXTURE_REPO:-}" ] &&
+     [ "${FIXTURE_REPO#/}" != "$FIXTURE_REPO" ] &&
+     [ -f "$FIXTURE_REPO/scripts/start_zotero_test_fixture_macos.sh" ]; then
+  FIXTURE_CACHE="${SCHOLAR_TEST_FIXTURE_ROOT:-$HOME/Library/Caches/ScholarWorkflow/test-fixtures}"
+  FIXTURE_MCP_VERSION="${ZOTERO_MCP_VERSION:-1.6.0}"
+  FIXTURE_XPI="$FIXTURE_CACHE/assets/zotero-mcp/$FIXTURE_MCP_VERSION/zotero-mcp-plugin-$FIXTURE_MCP_VERSION.xpi"
+  FIXTURE_MANIFEST="$FIXTURE_CACHE/metadata/fixture-manifest.json"
+  if [ ! -f "$FIXTURE_XPI" ] || [ ! -f "$FIXTURE_MANIFEST" ]; then
+    if ! (cd "$FIXTURE_REPO" && ./scripts/prepare_shared_test_assets_macos.sh) \
+      > "$RUN/output/zotero-fixture-prepare.log" 2>&1; then
+      echo 'T4: fixture assets unavailable; see fixture preparation log' >&2
+    fi
+  fi
+  if [ -f "$FIXTURE_XPI" ] && [ -f "$FIXTURE_MANIFEST" ]; then
+    if ZOTERO_FIXTURE_ENV="$(cd "$FIXTURE_REPO" && ./scripts/start_zotero_test_fixture_macos.sh 2>"$RUN/output/zotero-fixture-start.stderr")"; then
+      ZOTERO_FIXTURE_STARTED_HERE=1
+      if source "$ZOTERO_FIXTURE_ENV"; then
+        export ISOLATED_ZOTERO_MCP_URL="${ZOTERO_MCP_URL:-}"
+      else
+        echo 'T4: fixture started but environment file could not be loaded' >&2
+      fi
+    else
+      echo 'T4: isolated Zotero fixture startup failed; see startup diagnostic' >&2
+    fi
+  fi
+else
+  echo 'T4: authorized isolated fixture and FIXTURE_REPO are unavailable' >&2
+fi
+if [ -n "${ISOLATED_ZOTERO_MCP_URL:-}" ]; then
+  printf 'fixture_repo_sha=%s\nfixture_run_id=%s\nmcp_url=%s\n' \
+    "${SKILLS_TEST_FIXTURES_SHA:-unknown}" "${ZOTERO_TEST_RUN_ID:-unknown}" \
+    "$ISOLATED_ZOTERO_MCP_URL" > "$RUN/output/t4-fixture.txt"
+fi
+```
+
+从生成的 `fixture.env` 取得本次动态端口，不手填固定端口、不继承用户已有 Zotero 地址。启动脚本的可用性检查属于环境准备；正式 T4 仍由已安装的 `zotero-mcp-session` 获取非空会话 ID 判定，不能用服务就绪代替业务结果。资源准备因缓存、权限或网络不可用失败时仅记会话子项无法判断；保留最小诊断，不反复启动。
+
+```bash
 if [ -n "${ISOLATED_ZOTERO_MCP_URL:-}" ] && [ -n "$PYTHON" ]; then
   if "$PYTHON" - "$ISOLATED_ZOTERO_MCP_URL" <<'PY'
 import sys,urllib.parse
@@ -306,7 +370,7 @@ PY
   then
     export ZOTERO_MCP_URL="$ISOLATED_ZOTERO_MCP_URL"
     if [ "${TOOLS_PROFILE_OK:-0}" = 1 ]; then
-      if "$RUN/profile-tools/bin/zotero-mcp-session" > "$RUN/output/session-id.txt" &&
+      if "$TOOLS_PROFILE_DIR/bin/zotero-mcp-session" > "$RUN/output/session-id.txt" &&
          test -s "$RUN/output/session-id.txt"; then
         echo 'T4: installed session initialized'
       else
@@ -316,6 +380,7 @@ PY
       echo 'T4: installed session not run; daily profile unavailable' >&2
     fi
   else
+    unset ZOTERO_MCP_URL ISOLATED_ZOTERO_MCP_URL
     echo 'T4: isolated MCP URL is invalid; do not connect to Zotero' >&2
   fi
 else
@@ -323,7 +388,7 @@ else
 fi
 ```
 
-执行前人工确认该地址确为授权 fixture；URL 形式检查不代表授权。检查输出是非空会话标识，正式入口调用随包 new-session.sh，只发送 initialize，不执行业务读写/删除。命令失败或空 ID 不算通过，不能以 `--help` 或文件存在代替。T5 直接复用本段及构建/安装的有效结果与可写 TMPDIR，不加 store 全量快照。
+执行前确认实例来自本次获授权的隔离测试 profile；URL 格式检查不能代替人工核对。检查输出是非空会话标识，正式入口调用随包 new-session.sh，只发送 initialize，不执行业务读写/删除。命令失败或空 ID 不算通过，不能以 `--help` 或文件存在代替。T5 直接复用本段及构建/安装的有效结果与可写 TMPDIR，不加 store 全量快照。
 
 原源码兼容**仅在本轮确实修改 tagger/session 资源根时执行**：用 §5.3 的同 SHA 源，检查未设置 Nix 资源根时的既有路径。`DEV_PYTHON` 由现有开发环境提供，必须是已安装 pytest、版本不低于 3.11 的解释器绝对路径；不在线安装依赖，不用 `command -v python3` 猜测。若该解释器不可用，仅源码 pytest 子项无法判断；独立的源码 session 检查仍在授权隔离端点可用时尝试。源码路径取不到时，只暂停这两个源码兼容子项。
 
@@ -374,9 +439,21 @@ fi
 
 缺 Nix/依赖/端点/权限时只暂停受阻的子项，其他独立项继续；产品断言失败记录业务失败，外部环境阻断记无法判断，不能将二者混报。命令退出非零时先记录实际诊断，不以打印的提示代替判定。环境错误最小诊断，同条件最多一次额外重试；产品断言失败不刷重试。必要输出留RUN，正式文件记T1–T5结果、未完成原因与复用记录，不新建证据平台。不调用真实Zotero、不实际清理/标签写入。
 
-收尾可用两个各自环境的 `agent-env remove --project` 移除本次托管资源，解除临时profile引用后保留输出供复核；这只是清理，不新增共享生命周期验收。不终止外部负责人提供的fixture，不按进程名杀进程。源码/APM/OpenCode/uv未受影响的既有结果继续有效。
+收尾可用两个各自环境的 `agent-env remove --project` 移除本次托管资源，解除临时 profile 引用后保留输出供复核；这只是清理，不新增共享生命周期验收。T4 的已安装命令及适用的源码会话检查结束后，**仅停止本轮通过上述正式脚本启动的隔离 Zotero 实例**，使用同脚本的 `stop <fixture.env>`；复用外部负责人启动的实例由原负责人清理，绝不按进程名终止用户的 Zotero。`stop` 会删除该实例的临时运行目录，故在停止前已把必要版本、端口和会话结果记在独立 `$RUN/output`；不额外保存完整响应或用户库内容。
 
-历史记录：2026-10-15 的 `test-v4.1` 第一、第二关口通过，仅覆盖当时的旧共享库步骤。`test-v5.2` 保留原 T1–T5 目标，修正独立检查的失败隔离和源码路径条件；共享版本变化的受影响结果仍按 §5.8 复核；不能沿用旧版本对新增步骤的批准。
+```bash
+if [ "${ZOTERO_FIXTURE_STARTED_HERE:-0}" = 1 ] &&
+   [ -n "${FIXTURE_REPO:-}" ] && [ -n "${ZOTERO_FIXTURE_ENV:-}" ]; then
+  if ! (cd "$FIXTURE_REPO" && ./scripts/start_zotero_test_fixture_macos.sh stop "$ZOTERO_FIXTURE_ENV"); then
+    echo 'T4: failed to stop owned isolated fixture; follow its documented cleanup without touching user Zotero' >&2
+  fi
+fi
+unset ZOTERO_MCP_URL ISOLATED_ZOTERO_MCP_URL
+```
+
+源码/APM/OpenCode/uv 未受影响的既有结果继续有效。
+
+历史记录：2026-10-15 的 `test-v4.1` 第一、第二关口通过，仅覆盖当时的旧共享库步骤。`test-v5.2` 修正独立检查的失败隔离和源码路径条件；`test-v5.3` 只补 T4 现有子项的 Mac 隔离服务启动、注入与清理。T1–T5 范围与历史正式结果不变，新增的执行步骤须定向复核后使用；不能沿用旧版第二关结论来批准新步骤。
 
 ### 5.6 旧版准备预检（2026-10-15，历史记录）
 
@@ -409,6 +486,8 @@ fi
 - **已存在的上游证据**：共享库在 `aarch64-darwin` 的 T1–T4（含 38 个单元检查及集成安装）已有 [正式记录](https://github.com/RekiDunois/agent-env-nix/blob/ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e/docs/validation.md)。按 Test Engineer Rule 不在本仓重复执行其通用校验。新 producer 构建/安装的业务结果必须由本仓正式入口确认；正式尝试与环境阻断按 §5.5 记录，仍不得连接真实 Zotero。
 - **审核与交接**：计划 P1–P4 定向复核及测试计划前两关记录见文件顶部。独立实现符合性复核结论为“部分完成”：实现符合计划，未发现实现偏差；由于隔离 session 项无法判断，不能声称所有必需结果齐备。取得获授权的隔离 endpoint 后，只需按 §5.4 补测该 session 项并更新 T5 关联结果，再复核这些受影响结果；本记录不代表合并批准。
 
+- **T4 配方后续修订（`test-v5.3-2026-10-16`，待复核、待执行）**：§5.4–§5.5 增加现有共享 Mac fixture 的实际启动/端口注入/清理步骤；本仓 Linux 无界面集成脚本不参与本轮 Mac 测试。§5.8 的 T1–T3 PASS、T4 两个帮助命令 PASS 及会话子项“无法判断”均为历史真实结果，不因更新文字自动变为通过或失效。只需定向复核新 T4 准备步骤，之后补测会话并更新 T5 关联结果。
+
 ### 5.9 本地准备预检（2026-10-16，PR #27 head `a4f55b5`）
 
 - 当前主机为 Darwin arm64；Nix 2.34.8、`flakes` 与 `nix-command`、`uv` 0.12.22、Python 3.14.7（含 `tomllib`）、jq 1.8.2、`mktemp`、`mkdir` 和 `find` 均可用；`/tmp` 可写。此项只检查运行时和必要命令，不读取远端 flake、不构建、不安装，也不运行业务入口或正式用例。
@@ -419,5 +498,5 @@ fi
 
 ## 6. 当前状态
 
-执行计划 v5 的 P1–P4 定向复核已通过，结论 `APPROVED`；测试修订 `test-v5.2` 的第一、第二关口已通过。PR #27 的实现提交 `a743b3268a1cc3198326dc7d19d42d103daaa45d` 已将 `flake.nix`/`flake.lock` 和 README 更新至共享 SHA `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`，并保留 nixpkgs 锁定值。新版 T1、T2、T3 通过；T4 复用两个 help 结果，但隔离 session 因无获授权 endpoint 而无法判断，源码兼容子项不适用；T5 的适用观察通过，session 子项无法判断。独立实现符合性复核确认实现符合计划、未发现实现偏差，但整体结论为“部分完成”，原因是上述 session 结果未齐。取得获授权 endpoint 后，按 §5.4 补测 session 并更新 T5 关联结果即可；正式输出和日志在 `/private/tmp/issue26-nix-QF4SR7/output/`。旧版结果继续保留在 §5.7，不能替代本轮新版结果；共享库自身的 Mac 测试也不替代本仓构建与安装检查。本状态不代表合并批准。
+执行计划 v5 的 P1–P4 定向复核已通过，结论 `APPROVED`；测试修订 `test-v5.3` 的第一关沿用通过，新增 T4 准备与清理步骤的第二关待独立复核；历史 `test-v5.2` 的第二关通过记录保持不变。PR #27 的实现提交 `a743b3268a1cc3198326dc7d19d42d103daaa45d` 已将 `flake.nix`/`flake.lock` 和 README 更新至共享 SHA `ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e`，并保留 nixpkgs 锁定值。新版 T1、T2、T3 通过；T4 复用两个 help 结果，但隔离 session 因无获授权 endpoint 而无法判断，源码兼容子项不适用；T5 的适用观察通过，session 子项无法判断。独立实现符合性复核确认实现符合计划、未发现实现偏差，但整体结论为“部分完成”，原因是上述 session 结果未齐。本地测试工程师按 §5.4 的正式 Mac fixture 启动步骤取得授权隔离 endpoint 后，仅补测 session 并更新 T5 关联结果；正式输出和日志在 `/private/tmp/issue26-nix-QF4SR7/output/`。旧版结果继续保留在 §5.7，不能替代本轮新版结果；共享库自身的 Mac 测试也不替代本仓构建与安装检查。本状态不代表合并批准。
 
