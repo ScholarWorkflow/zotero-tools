@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     agent-env-nix = {
-      url = "github:RekiDunois/agent-env-nix/760c1bf60e8ec19d1985660ec5e3276a8ef80b5a";
+      url = "github:RekiDunois/agent-env-nix/ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };

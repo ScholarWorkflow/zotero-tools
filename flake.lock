@@ -9,17 +9,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1792067794,
-        "narHash": "sha256-x1of5F3pJ5pc6V3ybv1mVfkLZ6h5rXrla3Ynlq7x2Mw=",
+        "lastModified": 1792094223,
+        "narHash": "sha256-MCgK0JLtmyOksFs0YhJIC2fmK+QKl/lgdU9353B3bJg=",
         "owner": "RekiDunois",
         "repo": "agent-env-nix",
-        "rev": "760c1bf60e8ec19d1985660ec5e3276a8ef80b5a",
+        "rev": "ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e",
         "type": "github"
       },
       "original": {
         "owner": "RekiDunois",
         "repo": "agent-env-nix",
-        "rev": "760c1bf60e8ec19d1985660ec5e3276a8ef80b5a",
+        "rev": "ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e",
         "type": "github"
       }
     },

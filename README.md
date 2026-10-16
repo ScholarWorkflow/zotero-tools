@@ -16,7 +16,7 @@ zotero-paper-tagger --help
 zotero-item-export --help
 ```
 
-`zotero-tools` 包含 `zotero-read`、`zotero-collections`、`zotero-paper-tagger` 和三个命令行入口；`zotero-collection-cleaner` 是单独选择的技能与 Codex 角色。安装到 profile 提供命令和固定资源，但不会把技能复制进某个项目。项目需要通过固定版本的 [agent-env-nix](https://github.com/RekiDunois/agent-env-nix/tree/760c1bf60e8ec19d1985660ec5e3276a8ef80b5a) 组合所需包，再显式运行 `agent-env apply --project /项目绝对路径`。消费者 flake 可按下面的方式生成部署命令：
+`zotero-tools` 包含 `zotero-read`、`zotero-collections`、`zotero-paper-tagger` 和三个命令行入口；`zotero-collection-cleaner` 是单独选择的技能与 Codex 角色。安装到 profile 提供命令和固定资源，但不会把技能复制进某个项目。项目需要通过固定版本的 [agent-env-nix](https://github.com/RekiDunois/agent-env-nix/tree/ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e) 组合所需包，再显式运行 `agent-env apply --project /项目绝对路径`。消费者 flake 可按下面的方式生成部署命令：
 
 ```nix
 {
@@ -24,7 +24,7 @@ zotero-item-export --help
     nixpkgs.url = "github:NixOS/nixpkgs/55bfb4d7437bd4e09ab7cba58a43bd68eb310044";
     producer.url = "github:ScholarWorkflow/zotero-tools/<producer-sha>";
     producer.inputs.nixpkgs.follows = "nixpkgs";
-    shared.url = "github:RekiDunois/agent-env-nix/760c1bf60e8ec19d1985660ec5e3276a8ef80b5a";
+    shared.url = "github:RekiDunois/agent-env-nix/ba2d0fe4ef4d1dc1d80ec628c3ecc6607829a76e";
     shared.inputs.nixpkgs.follows = "nixpkgs";
   };
 
@@ -42,6 +42,8 @@ zotero-item-export --help
 ```
 
 将 `<producer-sha>` 换成固定的 40 位提交号后，在消费者目录运行 `nix build .#default`，再运行 `./result/bin/agent-env apply --project /项目绝对路径`。要单独部署 cleaner，只需把根包改为 `producer.packages.${system}.zotero-collection-cleaner`；profile 安装和项目部署是两个分开的入口。共享仓库是私有仓库时，Nix 需通过现有 GitHub/Nix 认证读取；不要将访问令牌写进 flake。
+
+`agent-env apply` 会整体替换所选技能目录和角色文件，包括已有同名内容及用户直接编辑；未选中的资源和相邻文件不受影响。配置保护只针对所选的 `mcp_servers` 项：等价的既有定义会复用，用户改过的生成值会保留并报告冲突，其他配置字段不改。应用失败可能留下部分更新；排除故障后，从项目目录重新运行 `./result/bin/agent-env apply --project /项目绝对路径`。
 
 两包默认只导出 Codex 资源，可在 Nix 表达式中对单个包设置 `enableHarnesses = []`。APM 的 Codex/OpenCode 路径与原有 `uv` 工作流继续使用源目录，不受 Nix 副本调整影响。运行时仍需 Zotero Desktop 和相应本地 MCP/HTTP 服务；`ZOTERO_HTTP_URL`、`ZOTERO_MCP_URL` 与 `ZOTERO_STORAGE_ROOT` 可在调用时覆盖。程序不把输出写进 Nix store；使用者应把导出、缓存和日志目录指向可写位置。
 
